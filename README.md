@@ -1,326 +1,317 @@
-# Importador DIAN — Ferretería
+# Importador de facturas electrónicas DIAN
 
-Aplicación local para Windows que permite importar facturas electrónicas de proveedores en formato XML y registrar las entradas de inventario correspondientes en la base de datos existente de Ferretería.
+## 1. Descripción del proyecto
 
-El sistema utiliza Gemini para extraer los datos de la factura, Qwen ejecutado localmente mediante Ollama para identificar los productos existentes y la API de Ferretería para registrar las entradas de inventario en Supabase.
+Aplicación local para Windows que permite importar productos de facturas electrónicas colombianas (DIAN) al inventario existente de la ferretería.
 
-La aplicación se ejecuta localmente y no necesita estar desplegada en una plataforma de alojamiento. Sí requiere conexión a internet para utilizar Gemini, consultar la API y actualizar el inventario en Supabase.
+La aplicación recibe archivos XML de facturas electrónicas, extrae su información mediante Gemini, identifica los productos que ya existen en el inventario y permite registrar sus cantidades como entradas de inventario.
 
----
+También permite comparar los precios de compra de la factura con los precios actuales del inventario y, si el usuario lo autoriza, actualizar el precio de compra de los productos.
 
-## 1. Objetivo del proyecto
+La aplicación funciona localmente en el computador. No necesita estar desplegada en un servidor, pero requiere conexión a internet para comunicarse con Gemini y con la API existente de la ferretería.
 
-Simplificar el registro de compras de inventario a partir de facturas electrónicas, reduciendo la digitación manual y evitando crear productos duplicados.
+## 2. Objetivos
 
-El sistema debe:
-
-- Permitir cargar facturas electrónicas XML de la DIAN.
-- Extraer la información relevante de la factura.
-- Identificar los productos mediante un catálogo local.
-- Relacionar los artículos de la factura con productos existentes en el inventario.
-- Mostrar una vista previa para revisar y corregir las coincidencias.
-- Registrar las entradas de inventario después de la confirmación.
+- Leer y procesar facturas electrónicas XML de la DIAN.
+- Extraer la información general de la factura y sus productos.
+- Identificar productos de la factura que ya existen en el inventario.
+- Evitar la creación automática de productos nuevos.
+- Comparar los precios de compra de la factura con los precios actuales.
+- Permitir autorizar o rechazar actualizaciones de precios.
+- Registrar entradas de inventario mediante la API existente.
 - Mantener un historial de las facturas importadas.
-- Evitar importar dos veces una misma factura.
-- Conservar la trazabilidad de los productos y las cantidades recibidas.
-
-## 2. Alcance y restricciones
-
-### Funcionalidades incluidas
-
-- Aplicación de escritorio o interfaz local para Windows.
-- Lectura de archivos XML de facturas electrónicas.
-- Extracción de datos mediante Gemini.
-- Búsqueda y comparación de productos mediante Qwen local.
-- Catálogo local de productos en formato JSON.
-- Vista previa y revisión manual de coincidencias.
-- Registro de entradas mediante la API existente.
-- Historial de importaciones y control de duplicados.
-- Gestión de errores y validación de los datos antes de confirmar.
-
-### Funcionalidades excluidas
-
-- Crear productos automáticamente.
-- Modificar los nombres o identificadores de los productos existentes.
-- Reemplazar la aplicación principal de inventario.
-- Crear una segunda base de datos para administrar el stock.
-- Modificar directamente el stock almacenado, si el inventario se calcula mediante movimientos.
-- Desplegar la interfaz del importador en la nube.
-- Registrar automáticamente productos con coincidencias dudosas.
-
-**Regla fundamental:** el importador solamente puede aumentar el inventario de productos que ya existan y estén habilitados para recibir entradas.
-
-Si un artículo no tiene coincidencia, se muestra **«Producto no encontrado»**. No se crea ningún producto nuevo.
+- Evitar que una factura se importe dos veces.
+- Permitir revisar y corregir coincidencias antes de confirmar una importación.
 
 ## 3. Arquitectura general
 
-```text
-┌──────────────────────────────────────┐
-│       Aplicación local Windows       │
-│                                      │
-│  Cargar XML                          │
-│  Vista previa                        │
-│  Revisar coincidencias               │
-│  Confirmar importación               │
-└──────────────────┬───────────────────┘
-                   │
-          ┌────────┴─────────┐
-          │                  │
-          ▼                  ▼
-┌─────────────────┐  ┌─────────────────────┐
-│ Gemini API      │  │ Catálogo local JSON │
-│                 │  │                     │
-│ Extraer datos   │  │ ID y nombre         │
-│ del XML         │  │ de los productos    │
-└────────┬────────┘  └──────────┬──────────┘
-         │                      │
-         │                      ▼
-         │             ┌───────────────────┐
-         │             │ Qwen mediante     │
-         │             │ Ollama local      │
-         │             │                   │
-         │             │ Comparar nombres  │
-         │             │ y sugerir ID      │
-         │             └─────────┬─────────┘
-         │                       │
-         └──────────┬────────────┘
-                    ▼
-         ┌──────────────────────┐
-         │ Revisión del usuario │
-         │ y confirmación       │
-         └──────────┬───────────┘
-                    ▼
-         ┌──────────────────────┐
-         │ API Ferretería       │
-         │ existente            │
-         └──────────┬───────────┘
-                    ▼
-         ┌──────────────────────┐
-         │ Supabase             │
-         │ Inventario oficial   │
-         └──────────────────────┘
-```
+La aplicación utiliza cuatro componentes principales:
 
-### Responsabilidades
+1. **Aplicación local:** interfaz, procesamiento de archivos, validaciones y flujo de importación.
+2. **Gemini API:** extracción de información del XML y comparación de productos.
+3. **Catálogo JSON:** copia local de los productos existentes en el inventario, utilizada como referencia para las coincidencias.
+4. **API de Ferretería:** conexión con el inventario oficial y registro de entradas y actualizaciones autorizadas.
 
-| Componente | Responsabilidad |
-|---|---|
-| Aplicación local | Interfaz, selección de XML, revisión y confirmación |
-| Gemini | Interpretar el XML y extraer los datos necesarios |
-| `productos.json` | Proporcionar un catálogo local para buscar productos |
-| Qwen + Ollama | Comparar descripciones y sugerir coincidencias |
-| API Ferretería | Validar productos y registrar las entradas |
-| Supabase | Mantener el inventario oficial y su trazabilidad |
+La base de datos de Supabase continúa siendo la fuente oficial de información del inventario. La aplicación no se conecta directamente a Supabase ni almacena claves administrativas de la base de datos.
 
-La aplicación local no debe conectarse directamente a Supabase utilizando una clave privilegiada. Las modificaciones del inventario deben realizarse mediante la API existente.
+## 4. Flujo de procesamiento
 
-## 4. Tecnologías
+El procesamiento de cada factura se divide en dos consultas independientes a Gemini.
 
-- **Lenguaje y framework de la aplicación:** por definir antes de iniciar la implementación.
-- **Formato de entrada:** XML de factura electrónica.
-- **Extracción de información:** Gemini API.
-- **Modelo local:** Qwen3:1.7B mediante Ollama.
-- **Catálogo local:** JSON.
-- **API de inventario:** API existente del proyecto InventarioFerrehaymar.
-- **Base de datos:** Supabase.
-- **Sistema operativo objetivo:** Windows.
+### Fase 1. Lectura y extracción del XML
 
-La tecnología definitiva para la interfaz y la persistencia local del historial se seleccionará durante la fase de diseño técnico, sin reconstruir los componentes que ya existen.
+El usuario selecciona un archivo XML de una factura electrónica.
+
+La aplicación envía el contenido a Gemini para extraer:
+
+**Información general:**
+- Identificación del proveedor.
+- Nombre del proveedor.
+- Número o referencia de factura.
+- Fecha de emisión.
+
+**Información de los productos:**
+- Descripción original.
+- Código del producto del proveedor, si existe.
+- Código del comprador, si existe.
+- Código de barras, si existe.
+- Cantidad.
+- Unidad de medida.
+- Precio unitario.
+- Descuentos e impuestos relevantes para interpretar el precio.
+
+Gemini devuelve la información estructurada en un JSON.
+
+En esta primera fase no se buscan coincidencias con el inventario.
+
+### Fase 2. Identificación de productos existentes
+
+Una vez extraídos los productos, la aplicación realiza una segunda consulta a Gemini.
+
+Se envían dos elementos:
+
+1. El JSON obtenido durante la primera fase.
+2. El catálogo local `productos.json`.
+
+Gemini compara las descripciones de los productos de la factura con los nombres de los productos existentes y devuelve los identificadores de las coincidencias.
+
+La respuesta debe incluir:
+- Descripción del producto en la factura.
+- ID del producto encontrado.
+- Nombre del producto del inventario.
+- Indicador de coincidencia.
+- Nivel de confianza.
+- Justificación breve cuando sea necesario.
+
+**Reglas obligatorias:**
+- Gemini solamente puede seleccionar IDs presentes en el catálogo recibido.
+- No puede inventar identificadores.
+- No puede crear productos.
+- Si no encuentra una coincidencia adecuada, debe devolver `producto_id: null`.
+- Las coincidencias ambiguas deben quedar pendientes de revisión manual.
+
+La aplicación valida nuevamente que cada ID exista y corresponda a un producto activo antes de permitir la importación.
+
+### Fase 3. Comparación de precios
+
+La comparación de precios no se realiza con Gemini. Se implementa directamente en el código de la aplicación.
+
+Para cada producto identificado se compara:
+
+- Precio de compra actual del inventario.
+- Precio unitario de la factura.
+- Diferencia absoluta.
+- Variación porcentual.
+
+Ejemplo:
+
+| Concepto | Valor |
+|---|---:|
+| Precio actual | $185.000 |
+| Precio de factura | $200.000 |
+| Diferencia | +$15.000 |
+| Variación | +8,11 % |
+
+La aplicación identifica si el precio:
+- Aumentó.
+- Disminuyó.
+- Se mantuvo igual.
+- No tiene un precio anterior de referencia.
+
+La comparación debe utilizar precios equivalentes, teniendo en cuenta unidades de medida, cantidades, descuentos e impuestos cuando correspondan.
+
+**Actualización de precios:**
+
+La aplicación nunca modifica automáticamente el precio de compra.
+
+El usuario puede:
+- Registrar la entrada de inventario sin cambiar el precio.
+- Autorizar la actualización del precio de compra.
+- Rechazar la actualización.
+- Revisar manualmente los casos dudosos.
+
+La decisión debe quedar registrada en el historial de importación.
+
+### Fase 4. Revisión de la factura
+
+Antes de registrar cualquier movimiento, la aplicación muestra una vista previa completa.
+
+Se muestran:
+- Datos de la factura.
+- Proveedor.
+- Fecha y número de factura.
+- Productos extraídos.
+- Productos encontrados en el inventario.
+- Coincidencias pendientes de revisión.
+- Productos sin coincidencia.
+- Cantidades y unidades.
+- Precios anteriores y precios de factura.
+- Diferencias porcentuales.
+- Actualizaciones de precio autorizadas.
+
+El usuario puede corregir manualmente las coincidencias, excluir líneas o resolver productos pendientes.
+
+Los productos sin coincidencia no se crean automáticamente ni generan movimientos de inventario.
+
+La importación solamente se confirma cuando el usuario lo decide expresamente.
+
+### Fase 5. Registro en el inventario
+
+Una vez confirmada la importación:
+
+1. La aplicación envía los datos a la API de Ferretería.
+2. La API valida los productos y las cantidades.
+3. Se registran las entradas de inventario.
+4. Se aplican únicamente las actualizaciones de precio autorizadas.
+5. Se conserva el historial de la factura y sus productos.
+
+La base de datos existente continúa utilizando los movimientos de inventario como fuente para calcular las existencias.
 
 ## 5. Catálogo local de productos
 
-El proyecto tendrá una copia local de los productos existentes para que Qwen pueda comparar nombres sin consultar la base de datos por cada artículo.
+La aplicación mantiene una copia local del inventario en:
 
-Archivo previsto:
+`data/productos.json`
 
-```text
-data/
-└── productos.json
-```
+El archivo contiene únicamente los campos necesarios para identificar productos y comparar precios:
+
+- `id`
+- `nombre`
+- `precio_compra`
 
 Ejemplo ilustrativo:
 
 ```json
 [
   {
-    "id": "uuid-real-del-producto",
-    "nombre": "Pulidora Black & Decker G720 4.5 pulgadas 820 W"
-  },
-  {
-    "id": "uuid-real-del-producto-2",
-    "nombre": "Disco de corte para metal 4.5 pulgadas"
+    "id": "uuid-producto-1",
+    "nombre": "Pulidora Black & Decker G720 4.5 pulgadas 820 W",
+    "precio_compra": 185000
   }
 ]
 ```
 
-Los identificadores anteriores son ilustrativos. El catálogo real debe utilizar los IDs devueltos por la API.
+Los valores anteriores son ejemplos. La aplicación debe descargar los datos reales desde la API.
 
-### Reglas del catálogo
+**Funcionamiento del catálogo:**
 
-1. El catálogo se genera o actualiza desde la API de Ferretería.
-2. Solo contiene el identificador y el nombre de cada producto.
-3. Se puede actualizar al iniciar la aplicación o mediante una acción manual.
-4. No es una fuente oficial del stock.
-5. Un ID encontrado en el JSON debe validarse nuevamente en el servidor antes de registrar una entrada.
-6. Si la copia está desactualizada, la API debe rechazar productos inexistentes o inactivos.
+- Se descarga desde la API al iniciar la aplicación.
+- Se puede actualizar manualmente.
+- Se utiliza para la comparación de productos.
+- No es la fuente oficial del inventario.
+- Los IDs y estados de los productos se validan nuevamente mediante la API antes de confirmar una importación.
 
-## 6. Extracción de la factura mediante Gemini
+El catálogo local no debe utilizarse para modificar directamente la base de datos.
 
-Gemini procesa el XML y devuelve datos estructurados para que la aplicación no tenga que depender de texto libre.
+## 6. Integración con Gemini
 
-La información que se intentará extraer incluye:
+Gemini se utiliza para dos tareas específicas:
 
-### Datos de la factura
+**Primera consulta: extracción del XML.**
 
-- Número o referencia.
-- Fecha de emisión.
-- Identificación o nombre del proveedor.
-- Moneda, cuando esté disponible.
+Convierte la información de la factura en una estructura JSON organizada.
 
-### Datos de cada línea
+**Segunda consulta: identificación de productos.**
 
-- Descripción original del artículo.
-- Código de identificación del proveedor, si existe.
-- Código de barras, si existe.
-- Cantidad facturada.
-- Unidad de medida.
-- Precio unitario.
-- Impuestos u otros datos necesarios para interpretar correctamente el precio, cuando corresponda.
+Compara los productos extraídos con el catálogo local y devuelve los IDs de los productos semejantes.
 
-Los campos opcionales pueden faltar. La aplicación debe validar el resultado de Gemini y no asumir que todos los XML incluyen códigos de barras, marcas o referencias de producto.
+La lógica de comparación de precios, validación de cantidades, confirmación y registro de inventario pertenece a la aplicación y a la API, no a Gemini.
 
-La información extraída se conservará separada de la información del producto del inventario.
+La clave de Gemini se almacena en la configuración local de la aplicación y nunca debe incluirse en el repositorio.
 
-## 7. Identificación de productos mediante Qwen
+## 7. Manejo de errores y continuidad
 
-Qwen comparará los artículos extraídos de la factura con los productos del catálogo local.
+La aplicación debe manejar errores durante las consultas a Gemini y durante la comunicación con la API.
 
-### Orden de búsqueda
+**Errores de Gemini:**
+- Errores temporales de conexión.
+- Límites de solicitudes.
+- Errores del servicio.
+- Problemas de cuota o facturación.
+- Respuestas inválidas o JSON incompleto.
 
-1. Comparación exacta de códigos, si están disponibles.
-2. Comparación del nombre normalizado.
-3. Comparación de palabras relevantes: marca, modelo, medida, potencia y otras características presentes.
-4. Uso de la descripción como información adicional.
+**Comportamiento esperado:**
 
-El nombre será el criterio principal cuando no existan códigos útiles.
+- Reintentar automáticamente errores temporales con esperas progresivas.
+- Si se alcanza un límite temporal, esperar antes de volver a intentar.
+- Si se agota la cuota o el saldo, detener el procesamiento y mostrar el motivo.
+- Conservar los resultados que ya se hayan obtenido.
+- Permitir continuar manualmente cuando el servicio vuelva a estar disponible.
 
-### Resultados posibles
+**Persistencia del progreso:**
 
-| Resultado | Comportamiento |
-|---|---|
-| Coincidencia clara | Proponer el producto existente y su ID |
-| Varias coincidencias posibles | Solicitar revisión manual |
-| Coincidencia insuficiente | Mostrar «Producto no encontrado» |
-| ID inexistente o producto inactivo | No registrar la entrada |
+La aplicación debe guardar localmente el estado del procesamiento de cada factura.
 
-Qwen debe devolver una respuesta estructurada que incluya el resultado de la comparación, el ID sugerido, la confianza y una explicación breve.
+Por ejemplo:
 
-El modelo no debe inventar identificadores ni decidir por sí solo que una coincidencia dudosa es válida.
+- XML cargado.
+- Extracción completada.
+- Identificación de productos completada o pendiente.
+- Comparación de precios completada.
+- Revisión del usuario pendiente.
+- Importación confirmada o cancelada.
 
-## 8. Flujo de importación
+Si ocurre un error, al volver a abrir la aplicación debe ser posible continuar desde la última fase completada sin repetir innecesariamente las consultas anteriores.
 
-### Paso 1. Seleccionar el XML
+Una factura pausada por falta de cuota no se importa automáticamente. El usuario debe reanudar el procesamiento cuando se haya restablecido la disponibilidad de Gemini.
 
-El usuario selecciona una factura electrónica desde el computador.
+## 8. Historial de facturas
 
-### Paso 2. Validar y extraer
+La aplicación debe conservar un historial de las facturas procesadas.
 
-La aplicación valida que el archivo sea legible y solicita a Gemini la extracción de los datos.
+### Información general
 
-### Paso 3. Buscar productos
-
-La aplicación compara las líneas de la factura con `productos.json` mediante Qwen.
-
-### Paso 4. Mostrar la vista previa
-
-Antes de modificar el inventario, se presentan:
-
-- Número y fecha de factura.
 - Proveedor.
-- Descripción original de cada artículo.
-- Producto sugerido del inventario.
-- ID del producto.
-- Cantidad y unidad.
-- Precio unitario.
-- Estado de la coincidencia.
-- Acciones para corregir o excluir líneas.
-
-Los artículos sin coincidencia deben permanecer identificados como no encontrados. Nunca se crearán automáticamente.
-
-### Paso 5. Revisar y confirmar
-
-El usuario confirma los productos que deben ingresar al inventario.
-
-No se deben enviar entradas al servidor mientras el usuario esté revisando la factura.
-
-Si hay líneas sin resolver, deben quedar identificadas y excluirse explícitamente de la entrada de stock, o resolverse antes de confirmar. La aplicación debe informar qué líneas quedarán sin registrar.
-
-### Paso 6. Registrar la importación
-
-La API valida los IDs, las cantidades y las unidades, y registra las entradas utilizando las operaciones existentes del inventario.
-
-El registro de la factura, su historial y los movimientos de inventario deben diseñarse para que un fallo no deje una importación parcialmente registrada.
-
-### Paso 7. Mostrar el resultado
-
-La aplicación informa si la operación se completó, qué productos ingresaron, qué líneas no se importaron y si hubo errores.
-
-## 9. Prevención de duplicados y consistencia
-
-La aplicación debe evitar que una misma factura incremente dos veces el inventario.
-
-Para ello:
-
-- Identificar las facturas por proveedor y número o referencia normalizada.
-- Definir una restricción de unicidad en la base de datos para impedir importaciones duplicadas.
-- Validar la duplicidad nuevamente en el servidor.
-- Registrar los movimientos y el historial de la factura de manera atómica.
-- Si la misma solicitud se reintenta debido a un fallo de conexión, no volver a sumar las cantidades.
-- No considerar una factura importada hasta que la operación se haya confirmado correctamente.
-
-La prevención de duplicados debe existir en el servidor y en la base de datos, no solamente en la interfaz local.
-
-## 10. Historial de importaciones
-
-Se debe conservar un historial mínimo que permita rastrear el origen de cada entrada.
-
-### Cabecera de factura
-
-- Identificador interno.
-- Proveedor.
-- Número o referencia.
+- Número de factura.
 - Fecha de emisión.
 - Fecha de importación.
-- Estado de procesamiento.
+- Estado del procesamiento.
+- Estado de importación.
 
-### Detalle de factura
+### Historial de productos
 
-- Factura relacionada.
-- ID del producto del inventario, cuando se haya encontrado.
-- Descripción original del XML.
+Por cada línea de factura se debe conservar:
+
+- ID del producto del inventario, cuando exista coincidencia.
+- Descripción original de la factura.
 - Código del proveedor, si existe.
-- Cantidad y unidad facturadas.
-- Precio unitario.
-- Estado de coincidencia o importación.
+- Cantidad.
+- Unidad de medida.
+- Precio unitario original de la factura.
+- Precio de compra anterior.
+- Diferencia de precio.
+- Variación porcentual.
+- Estado de coincidencia.
+- Estado de importación.
+- Decisión sobre la actualización del precio.
 
-Las líneas no encontradas pueden conservarse con el ID del producto vacío, para dejar constancia de que estaban presentes en la factura sin crear productos nuevos.
+Los productos sin coincidencia pueden conservarse en el historial con el ID del producto vacío, sin crear productos ni generar movimientos de inventario.
 
-El diseño definitivo de las tablas debe verificarse contra el esquema existente antes de aplicar cambios a Supabase.
+El historial permite consultar las compras anteriores y observar la evolución de los precios.
 
-## 11. Seguridad
+## 9. Protección contra importaciones duplicadas
 
-- No guardar claves API dentro del código fuente.
-- Mantener las credenciales de Gemini en configuración local protegida.
-- No exponer la clave privilegiada de Supabase a la interfaz.
-- Utilizar la autenticación existente de la API de Ferretería.
-- Validar nuevamente en el servidor cada producto seleccionado.
-- Validar cantidades, unidades, precios y estructura de los datos.
-- No confiar en los IDs devueltos por Qwen sin verificarlos.
-- No registrar movimientos sin una confirmación explícita del usuario.
+Una misma factura no debe generar entradas de inventario más de una vez.
 
-## 12. Estructura prevista del proyecto
+La protección debe implementarse en la API y en la base de datos, no solamente en la interfaz local.
 
-La estructura inicial se definirá antes de implementar el código. Como referencia:
+Se debe identificar una factura mediante información confiable, como el proveedor y su número de factura, y establecer una restricción de unicidad adecuada.
+
+La confirmación de una importación debe ser idempotente: repetir una solicitud por un error de conexión no puede duplicar las entradas ni aplicar dos veces las actualizaciones de precios.
+
+El registro de la factura, sus líneas, los movimientos de inventario y los cambios de precio autorizados deben diseñarse para mantener la consistencia de los datos, evitando importaciones parciales.
+
+## 10. Seguridad
+
+- La aplicación se ejecuta localmente.
+- La clave de Gemini se almacena en variables de entorno.
+- Las credenciales de la API se manejan de forma segura.
+- No se expone la clave `SUPABASE_SERVICE_ROLE_KEY`.
+- La aplicación no se conecta directamente a Supabase.
+- Las operaciones de inventario pasan por la API existente.
+- Los datos recibidos de Gemini se validan antes de utilizarlos.
+
+## 11. Estructura propuesta del proyecto
 
 ```text
 importador-dian/
@@ -335,124 +326,151 @@ importador-dian/
 │
 ├── src/
 │   ├── interfaz/
+│   │
 │   ├── xml/
+│   │   ├── lector
+│   │   └── validador
+│   │
 │   ├── gemini/
+│   │   ├── cliente
+│   │   ├── extraccion
+│   │   └── coincidencias
+│   │
 │   ├── catalogo/
-│   ├── qwen/
+│   │   ├── sincronizacion
+│   │   └── busqueda
+│   │
+│   ├── precios/
+│   │   └── comparacion
+│   │
 │   ├── importacion/
+│   │   ├── validacion
+│   │   ├── confirmacion
+│   │   └── registro
+│   │
+│   ├── progreso/
+│   │   └── persistencia
+│   │
 │   ├── api/
+│   │   └── cliente
+│   │
 │   └── historial/
+│       └── consultas
 │
 └── tests/
 ```
 
-Esta estructura es una propuesta inicial, no una lista de archivos ya implementados. Los archivos definitivos y sus responsabilidades se documentarán antes de desarrollar cada fase.
+La estructura es una propuesta inicial y puede ajustarse durante la implementación.
 
-## 13. Plan de desarrollo por fases
+## 12. Variables de entorno
 
-### Fase 1. Revisar y documentar
+Se utilizarán variables de entorno para configurar las conexiones:
 
-- Confirmar la estructura del XML de ejemplo.
-- Revisar los endpoints existentes de productos y entradas de inventario.
-- Verificar las unidades admitidas por la API.
-- Confirmar cómo se registra una entrada y cómo se protege contra duplicados.
-- Definir la tecnología de la aplicación local.
-- Documentar la estructura de archivos.
+```env
+GEMINI_API_KEY=
+GEMINI_MODEL=
+FERRETERIA_API_URL=
+```
 
-**Resultado esperado:** diseño técnico validado sin modificar el inventario.
+Los nombres definitivos se ajustarán a la implementación de la aplicación.
 
-### Fase 2. Crear la aplicación local
+El archivo `.env` debe permanecer fuera del repositorio.
 
-- Preparar el proyecto.
-- Crear la interfaz inicial.
-- Permitir seleccionar un XML.
-- Mostrar los datos básicos de la factura.
+## 13. Alcance y restricciones
 
-**Resultado esperado:** aplicación local funcional para cargar y visualizar archivos.
+La aplicación se limita a procesar facturas electrónicas XML y registrar entradas de productos existentes.
 
-### Fase 3. Integrar Gemini
+No contempla:
 
-- Configurar la clave mediante variables de entorno.
-- Enviar el XML para extracción.
-- Validar la respuesta estructurada.
-- Gestionar errores y campos faltantes.
+- Crear productos automáticamente.
+- Modificar directamente Supabase.
+- Reemplazar la aplicación principal de inventario.
+- Desplegarse como servicio web público.
+- Realizar ventas.
+- Modificar precios sin autorización.
+- Importar facturas sin revisión y confirmación del usuario.
 
-**Resultado esperado:** datos de la factura disponibles en un formato consistente.
+El PDF de la factura puede utilizarse como referencia visual en una fase futura, pero el XML es la fuente principal de extracción.
 
-### Fase 4. Crear y sincronizar el catálogo JSON
+## 14. Tecnologías
 
-- Consultar los productos existentes mediante la API.
+Las tecnologías definitivas de interfaz y empaquetado se seleccionarán antes de iniciar la implementación.
+
+Componentes previstos:
+
+- Aplicación local para Windows.
+- Gemini API para extracción y coincidencia de productos.
+- JSON local para el catálogo.
+- API existente de Ferretería.
+- Supabase como base de datos oficial, mediante la API.
+
+No se requiere Ollama ni Qwen.
+
+## 15. Fases de desarrollo
+
+### Fase 1. Preparación del proyecto
+- Crear la estructura de carpetas.
+- Configurar variables de entorno.
+- Preparar la interfaz inicial.
+- Configurar la conexión con la API.
+
+### Fase 2. Catálogo de productos
+- Consultar productos desde la API.
 - Generar `productos.json`.
-- Implementar la actualización manual del catálogo.
-- Validar el formato y los identificadores.
+- Implementar actualización manual del catálogo.
+- Validar productos activos e IDs.
 
-**Resultado esperado:** catálogo local actualizado con IDs y nombres reales.
+### Fase 3. Lectura de XML
+- Cargar archivos XML.
+- Validar su estructura.
+- Implementar extracción mediante Gemini.
+- Obtener JSON estructurado de la factura.
 
-### Fase 5. Integrar Qwen con Ollama
+### Fase 4. Coincidencia de productos
+- Enviar el JSON extraído y el catálogo a Gemini.
+- Obtener IDs de productos semejantes.
+- Validar los IDs recibidos.
+- Identificar coincidencias ambiguas y productos no encontrados.
 
-- Consultar el catálogo local.
-- Comparar las descripciones de la factura.
-- Devolver IDs existentes y nivel de confianza.
-- Detectar coincidencias ambiguas y productos no encontrados.
+### Fase 5. Comparación de precios
+- Comparar precios actuales y precios de factura.
+- Calcular diferencias y porcentajes.
+- Mostrar aumentos, disminuciones y precios iguales.
+- Permitir autorizar actualizaciones.
 
-**Resultado esperado:** sugerencias de coincidencia sin crear ni modificar productos.
+### Fase 6. Continuidad del procesamiento
+- Guardar el progreso localmente.
+- Implementar reintentos para errores temporales.
+- Pausar ante problemas de cuota.
+- Permitir reanudar desde la última fase completada.
 
-### Fase 6. Implementar la vista previa
+### Fase 7. Revisión y confirmación
+- Crear vista previa de la factura.
+- Permitir corregir coincidencias.
+- Permitir excluir productos.
+- Solicitar confirmación antes de importar.
 
-- Mostrar todos los artículos de la factura.
-- Permitir revisar y corregir coincidencias.
-- Permitir excluir artículos no resueltos.
-- Validar los datos antes de confirmar.
+### Fase 8. Integración con inventario
+- Registrar entradas mediante la API.
+- Aplicar cambios de precio autorizados.
+- Implementar protección contra duplicados.
+- Mantener la consistencia de las operaciones.
 
-**Resultado esperado:** ninguna entrada se registra sin confirmación.
+### Fase 9. Historial y pruebas
+- Consultar facturas procesadas.
+- Consultar historial de precios.
+- Probar facturas con múltiples productos.
+- Probar productos sin coincidencia.
+- Probar errores de Gemini y de conexión.
+- Probar reanudación y prevención de duplicados.
 
-### Fase 7. Integrar el registro de entradas
+## 16. Principio fundamental
 
-- Reutilizar la API existente.
-- Validar IDs, cantidades y unidades.
-- Implementar la protección contra duplicados.
-- Garantizar que la importación y sus movimientos no queden parcialmente registrados.
+La aplicación debe mantener una separación clara de responsabilidades:
 
-**Resultado esperado:** las entradas confirmadas se reflejan correctamente en Supabase.
+- **Gemini:** interpreta el XML y encuentra semejanzas entre productos.
+- **Aplicación local:** administra el proceso, compara precios, permite revisar y solicita confirmación.
+- **API de Ferretería:** valida y ejecuta las operaciones autorizadas.
+- **Supabase:** conserva la información oficial del inventario, los movimientos y el historial.
 
-### Fase 8. Historial y pruebas
-
-- Guardar la referencia de la factura y sus líneas.
-- Registrar los artículos no encontrados.
-- Probar XML válidos e inválidos.
-- Probar coincidencias exactas, ambiguas y ausentes.
-- Simular reintentos y errores de conexión.
-- Comprobar que una factura no pueda duplicar entradas.
-
-**Resultado esperado:** importador probado y con trazabilidad.
-
-## 14. Criterios de aceptación
-
-El proyecto se considerará listo cuando:
-
-- La aplicación funcione localmente en Windows.
-- Pueda leer XML reales de facturas electrónicas.
-- Gemini extraiga los datos relevantes correctamente.
-- Qwen encuentre productos existentes usando el catálogo local.
-- Los productos no encontrados no se creen.
-- Las coincidencias ambiguas requieran revisión.
-- La vista previa permita corregir y excluir líneas.
-- El inventario se actualice mediante la API existente.
-- No se pueda duplicar una importación confirmada.
-- El historial permita identificar la factura que originó cada entrada.
-- Los errores no produzcan movimientos parciales ni incrementos duplicados.
-- Las credenciales se mantengan fuera del código fuente.
-
----
-
-## 15. Principio de desarrollo
-
-El proyecto se construirá de forma incremental, una fase a la vez.
-
-Antes de escribir código para una fase, se definirán los archivos que se van a crear o modificar, la responsabilidad de cada archivo y sus dependencias. Se probará cada fase antes de avanzar a la siguiente.
-
-No se reconstruirá el sistema de inventario, no se crearán productos automáticamente y no se modificarán las reglas existentes de stock sin una necesidad comprobada.
-
-**Fuente oficial del inventario:** Supabase, mediante la API existente de Ferretería.
-
-**Función del importador:** interpretar la factura, identificar productos existentes, permitir la revisión y registrar las entradas confirmadas.
+Ninguna factura debe modificar el inventario sin revisión y confirmación expresa del usuario.
