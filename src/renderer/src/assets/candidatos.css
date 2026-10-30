@@ -1,0 +1,138 @@
+/* Lista de productos parecidos (tarjetas seleccionables). */
+
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 340px;
+  margin: 0;
+  padding: 2px 4px 2px 2px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.candidate-list li {
+  margin: 0;
+}
+
+.candidate-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  font: inherit;
+  text-align: left;
+  color: #172033;
+  background: #ffffff;
+  border: 1px solid #e4e9f2;
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.candidate-card:hover:not(:disabled) {
+  border-color: #9aade8;
+  background: #f6f8ff;
+}
+
+.candidate-card:focus-visible {
+  outline: 2px solid #5271ce;
+  outline-offset: 2px;
+}
+
+.candidate-card.selected {
+  border-color: #5271ce;
+  background: #edf2ff;
+  box-shadow: 0 0 0 1px #5271ce;
+}
+
+.candidate-card:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.candidate-radio {
+  position: relative;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #c3cbe0;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: border-color 0.15s ease;
+}
+
+.candidate-card.selected .candidate-radio {
+  border-color: #5271ce;
+}
+
+.candidate-card.selected .candidate-radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #5271ce;
+}
+
+.candidate-info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.candidate-name {
+  color: #1d2939;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.candidate-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.candidate-code {
+  padding: 2px 7px;
+  color: #475467;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: #eef2f8;
+  border-radius: 5px;
+}
+
+.candidate-price {
+  color: #667085;
+}
+
+.candidate-score {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  color: #3159c9;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e6ecff;
+  border-radius: 999px;
+}
+
+.candidate-card.selected .candidate-score {
+  color: #ffffff;
+  background: #5271ce;
+}
+
+@media (max-width: 600px) {
+  .candidate-card {
+    align-items: flex-start;
+  }
+}

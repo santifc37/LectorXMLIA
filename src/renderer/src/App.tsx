@@ -2,6 +2,8 @@
 import { useEffect, useState, type JSX } from 'react'
 import './assets/main.css'
 import './assets/precios.css'
+import './assets/candidatos.css'
+import { ListaCandidatos } from './components/ListaCandidatos'
 
 interface AppInfo {
   name: string
@@ -789,38 +791,14 @@ function App(): JSX.Element {
 
                         {resultado.candidatos.length > 0 ? (
                           <div className="matching-candidates">
-                            <select
-      className="select-coincidencias"
-      defaultValue=""
-      onChange={(e) => {
-        const valStr = e.target.value;
-        if (!valStr) return;
-        const cand = resultado.candidatos.find(
-          (c: any, i: number) => String(c.id || c.codigo || c.nombre || i) === valStr
-        );
-        if (cand) {
-          // Disparar las funciones de selección y actualización de precios disponibles en el scope
-          if (typeof handleSeleccionarCandidato === 'function') handleSeleccionarCandidato(index, cand);
-          else if (typeof seleccionarCandidato === 'function') seleccionarCandidato(index, cand);
-          else if (typeof handleSelectCandidato === 'function') handleSelectCandidato(index, cand);
-          else if (typeof (resultado as any).onSelect === 'function') (resultado as any).onSelect(cand);
-        }
-      }}
-    >
-      <option value="" disabled>-- Seleccionar producto coincidente --</option>
-      {resultado.candidatos.map((candidato: any, idxCand: number) => {
-        const valKey = String(candidato.id || candidato.codigo || candidato.nombre || idxCand);
-        const cod = candidato.codigo ? `[${candidato.codigo}] ` : '';
-        const nom = candidato.nombre || candidato.descripcion || 'Producto';
-        const pre = candidato.precio ? ` - ${Number(candidato.precio).toLocaleString()}` : '';
-        const sim = candidato.similitud ? ` (${Math.round(candidato.similitud * 100)}% coincidencia)` : '';
-        return (
-          <option key={idxCand} value={valKey}>
-            {cod}{nom}{pre}{sim}
-          </option>
-        );
-      })}
-    </select>
+                            <ListaCandidatos
+                              candidatos={resultado.candidatos}
+                              seleccionadoId={resultado.productoSeleccionadoId}
+                              deshabilitado={seleccionandoCandidato === index}
+                              onSeleccionar={(candidatoId) =>
+                                void seleccionarCandidato(index, candidatoId)
+                              }
+                            />
                           </div>
                         ) : (
                           <p className="matching-reason">
@@ -889,38 +867,14 @@ function App(): JSX.Element {
 
             {resultado.candidatos.length > 0 && (
               <div className="matching-candidates">
-                <select
-      className="select-coincidencias"
-      defaultValue=""
-      onChange={(e) => {
-        const valStr = e.target.value;
-        if (!valStr) return;
-        const cand = resultado.candidatos.find(
-          (c: any, i: number) => String(c.id || c.codigo || c.nombre || i) === valStr
-        );
-        if (cand) {
-          // Disparar las funciones de selección y actualización de precios disponibles en el scope
-          if (typeof handleSeleccionarCandidato === 'function') handleSeleccionarCandidato(index, cand);
-          else if (typeof seleccionarCandidato === 'function') seleccionarCandidato(index, cand);
-          else if (typeof handleSelectCandidato === 'function') handleSelectCandidato(index, cand);
-          else if (typeof (resultado as any).onSelect === 'function') (resultado as any).onSelect(cand);
-        }
-      }}
-    >
-      <option value="" disabled>-- Seleccionar producto coincidente --</option>
-      {resultado.candidatos.map((candidato: any, idxCand: number) => {
-        const valKey = String(candidato.id || candidato.codigo || candidato.nombre || idxCand);
-        const cod = candidato.codigo ? `[${candidato.codigo}] ` : '';
-        const nom = candidato.nombre || candidato.descripcion || 'Producto';
-        const pre = candidato.precio ? ` - ${Number(candidato.precio).toLocaleString()}` : '';
-        const sim = candidato.similitud ? ` (${Math.round(candidato.similitud * 100)}% coincidencia)` : '';
-        return (
-          <option key={idxCand} value={valKey}>
-            {cod}{nom}{pre}{sim}
-          </option>
-        );
-      })}
-    </select>
+                <ListaCandidatos
+                  candidatos={resultado.candidatos}
+                  seleccionadoId={resultado.productoSeleccionadoId}
+                  deshabilitado={seleccionandoCandidato === index}
+                  onSeleccionar={(candidatoId) =>
+                    void seleccionarCandidato(index, candidatoId)
+                  }
+                />
               </div>
             )}
 
