@@ -989,3 +989,69 @@ td {
     padding: 13px;
   }
 }
+
+
+/* TABLA DE COINCIDENCIAS ALTAS */
+.matching-high-matches {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid #eaecf0;
+}
+
+.matching-high-matches h3 {
+  margin: 0 0 14px;
+  color: #344054;
+  font-size: 14px;
+}
+
+.matching-high-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.matching-high-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.matching-high-table th,
+.matching-high-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf0f4;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.matching-high-table th {
+  background: #f8f9fb;
+  color: #8992a2;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.matching-high-table td {
+  color: #475467;
+  font-size: 12px;
+}
+
+.matching-high-confirm-button {
+  min-height: 32px;
+  padding: 7px 12px;
+}
+
+.matching-high-confirmed {
+  color: #168354;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.matching-high-price-details {
+  margin-top: 14px;
+}
+
+.matching-high-price-details:empty {
+  display: none;
+}
+

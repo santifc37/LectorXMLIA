@@ -751,8 +751,111 @@ function App(): JSX.Element {
           </span>
         </div>
 
+
+        {/* TABLA DE COINCIDENCIAS ALTAS */}
+        {resultadosCoincidencia.some(
+          (resultado) => resultado.estado === 'coincidencia_alta'
+        ) && (
+          <section className="matching-high-matches">
+            <h3>Productos con coincidencia alta</h3>
+
+            <div className="matching-high-table-scroll">
+              <table className="matching-high-table">
+                <thead>
+                  <tr>
+                    <th>Producto de factura</th>
+                    <th>Producto encontrado</th>
+                    <th>Similitud</th>
+                    <th>Confirmación</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {resultadosCoincidencia.map((resultado, index) => {
+                    if (resultado.estado !== 'coincidencia_alta') {
+                      return null;
+                    }
+
+                    const candidatoSeleccionado =
+                      resultado.candidatos.find(
+                        (candidato) =>
+                          candidato.id === resultado.productoSeleccionadoId
+                      ) ?? resultado.candidatos[0];
+
+                    return (
+                      <tr key={resultado.productoFactura + '-' + index}>
+                        <td>{resultado.productoFactura}</td>
+
+                        <td>
+                          {candidatoSeleccionado?.nombre ??
+                            'No se encontró candidato'}
+                        </td>
+
+                        <td>{resultado.puntuacion}%</td>
+
+                        <td>
+                          {seleccionandoCandidato === index ? (
+                            <span>Calculando...</span>
+                          ) : resultado.productoSeleccionadoId ? (
+                            <span className="matching-high-confirmed">
+                              Confirmado
+                            </span>
+                          ) : candidatoSeleccionado ? (
+                            <button
+                              type="button"
+                              className="button secondary matching-high-confirm-button"
+                              onClick={() =>
+                                void seleccionarCandidato(
+                                  index,
+                                  candidatoSeleccionado.id
+                                )
+                              }
+                            >
+                              Confirmar
+                            </button>
+                          ) : (
+                            <span>Sin candidato</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="matching-high-price-details">
+              {resultadosCoincidencia.map((resultado, index) => {
+                if (
+                  resultado.estado !== 'coincidencia_alta' ||
+                  !resultado.productoSeleccionadoId
+                ) {
+                  return null;
+                }
+
+                return (
+                  <div key={resultado.productoFactura + '-precio-' + index}>
+                    {seleccionandoCandidato === index ? (
+                      <p className="matching-reason">
+                        Calculando comparación de precios...
+                      </p>
+                    ) : (
+                      renderComparacionPrecio(index)
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <ol className="matching-list">
-          {resultadosCoincidencia.map((resultado, index) => (
+          {resultadosCoincidencia
+            .map((resultado, index) => ({ resultado, index }))
+            .filter(({ resultado }) =>
+              Boolean(resultado.estado !== 'coincidencia_alta')
+            )
+            .map(({ resultado, index }) => (
             <li
               className="matching-item"
             key={`${resultado.productoFactura}-${index}`}
