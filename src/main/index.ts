@@ -59,10 +59,6 @@ app.whenReady().then(() => {
   return await procesarXMLConGemini(xml)
 })
 
-ipcMain.handle('gemini:procesar-xml', async (_, xml: string) => {
-  return await procesarXMLConGemini(xml)
-})
-
   // Autenticación
   ipcMain.handle('auth:login', async (_, contrasena: string) => {
     return await iniciarSesion(contrasena)
