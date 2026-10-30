@@ -145,7 +145,7 @@ function App(): JSX.Element {
   }, [])
 
   async function iniciarSesion(): Promise<void> {
-    if (!contrasena.trim()) {
+    if (!contrasena) {
       setError('Ingresa la contraseña.')
       return
     }
@@ -789,54 +789,38 @@ function App(): JSX.Element {
 
                         {resultado.candidatos.length > 0 ? (
                           <div className="matching-candidates">
-                            {resultado.candidatos.map((candidato) => (
-                              <button
-                                type="button"
-                                className={
-                                  'candidate-item candidate-button' +
-                                  (resultado.productoSeleccionadoId === candidato.id
-                                    ? ' selected'
-                                    : '')
-                                }
-                                key={candidato.id}
-                                onClick={() =>
-                                  void seleccionarCandidato(index, candidato.id)
-                                }
-                                disabled={seleccionandoCandidato === index}
-                                aria-pressed={
-                                  resultado.productoSeleccionadoId === candidato.id
-                                }
-                              >
-                                <div>
-                                  <strong>{candidato.nombre}</strong>
-
-                                  {candidato.codigo && (
-                                    <small>
-                                      Código: {candidato.codigo}
-                                    </small>
-                                  )}
-
-                                  <small>
-                                    {candidato.precio !== null
-                                      ? Number(candidato.precio).toLocaleString('es-CO', {
-                                          style: 'currency',
-                                          currency: 'COP'
-                                        })
-                                      : 'Precio no disponible'}
-                                  </small>
-
-                                  {candidato.motivo && (
-                                    <small>{candidato.motivo}</small>
-                                  )}
-                                </div>
-
-                                <span>
-                                  {resultado.productoSeleccionadoId === candidato.id
-                                    ? 'Seleccionado'
-                                    : candidato.puntuacion + '% · Elegir'}
-                                </span>
-                              </button>
-                            ))}
+                            <select
+      className="select-coincidencias"
+      defaultValue=""
+      onChange={(e) => {
+        const valStr = e.target.value;
+        if (!valStr) return;
+        const cand = resultado.candidatos.find(
+          (c: any, i: number) => String(c.id || c.codigo || c.nombre || i) === valStr
+        );
+        if (cand) {
+          // Disparar las funciones de selección y actualización de precios disponibles en el scope
+          if (typeof handleSeleccionarCandidato === 'function') handleSeleccionarCandidato(index, cand);
+          else if (typeof seleccionarCandidato === 'function') seleccionarCandidato(index, cand);
+          else if (typeof handleSelectCandidato === 'function') handleSelectCandidato(index, cand);
+          else if (typeof (resultado as any).onSelect === 'function') (resultado as any).onSelect(cand);
+        }
+      }}
+    >
+      <option value="" disabled>-- Seleccionar producto coincidente --</option>
+      {resultado.candidatos.map((candidato: any, idxCand: number) => {
+        const valKey = String(candidato.id || candidato.codigo || candidato.nombre || idxCand);
+        const cod = candidato.codigo ? `[${candidato.codigo}] ` : '';
+        const nom = candidato.nombre || candidato.descripcion || 'Producto';
+        const pre = candidato.precio ? ` - ${Number(candidato.precio).toLocaleString()}` : '';
+        const sim = candidato.similitud ? ` (${Math.round(candidato.similitud * 100)}% coincidencia)` : '';
+        return (
+          <option key={idxCand} value={valKey}>
+            {cod}{nom}{pre}{sim}
+          </option>
+        );
+      })}
+    </select>
                           </div>
                         ) : (
                           <p className="matching-reason">
@@ -905,47 +889,38 @@ function App(): JSX.Element {
 
             {resultado.candidatos.length > 0 && (
               <div className="matching-candidates">
-                {resultado.candidatos.map((candidato) => (
-                  <button
-                    type="button"
-                    className={`candidate-item candidate-button ${
-                      resultado.productoSeleccionadoId === candidato.id
-                        ? 'selected'
-                        : ''
-                    }`}
-                    key={candidato.id}
-                    onClick={() => void seleccionarCandidato(index, candidato.id)}
-                    disabled={seleccionandoCandidato === index}
-                    aria-pressed={resultado.productoSeleccionadoId === candidato.id}
-                  >
-                    <div>
-                      <strong>{candidato.nombre}</strong>
-
-                      {candidato.codigo && (
-                        <small>Código: {candidato.codigo}</small>
-                      )}
-
-                      <small>
-                        {candidato.precio !== null
-                          ? Number(candidato.precio).toLocaleString('es-CO', {
-                              style: 'currency',
-                              currency: 'COP'
-                            })
-                          : 'Precio no disponible'}
-                      </small>
-
-                      {candidato.motivo && (
-                        <small>{candidato.motivo}</small>
-                      )}
-                    </div>
-
-                    <span>
-                      {resultado.productoSeleccionadoId === candidato.id
-                        ? 'Seleccionado'
-                        : `${candidato.puntuacion}% · Elegir`}
-                    </span>
-                  </button>
-                ))}
+                <select
+      className="select-coincidencias"
+      defaultValue=""
+      onChange={(e) => {
+        const valStr = e.target.value;
+        if (!valStr) return;
+        const cand = resultado.candidatos.find(
+          (c: any, i: number) => String(c.id || c.codigo || c.nombre || i) === valStr
+        );
+        if (cand) {
+          // Disparar las funciones de selección y actualización de precios disponibles en el scope
+          if (typeof handleSeleccionarCandidato === 'function') handleSeleccionarCandidato(index, cand);
+          else if (typeof seleccionarCandidato === 'function') seleccionarCandidato(index, cand);
+          else if (typeof handleSelectCandidato === 'function') handleSelectCandidato(index, cand);
+          else if (typeof (resultado as any).onSelect === 'function') (resultado as any).onSelect(cand);
+        }
+      }}
+    >
+      <option value="" disabled>-- Seleccionar producto coincidente --</option>
+      {resultado.candidatos.map((candidato: any, idxCand: number) => {
+        const valKey = String(candidato.id || candidato.codigo || candidato.nombre || idxCand);
+        const cod = candidato.codigo ? `[${candidato.codigo}] ` : '';
+        const nom = candidato.nombre || candidato.descripcion || 'Producto';
+        const pre = candidato.precio ? ` - ${Number(candidato.precio).toLocaleString()}` : '';
+        const sim = candidato.similitud ? ` (${Math.round(candidato.similitud * 100)}% coincidencia)` : '';
+        return (
+          <option key={idxCand} value={valKey}>
+            {cod}{nom}{pre}{sim}
+          </option>
+        );
+      })}
+    </select>
               </div>
             )}
 
