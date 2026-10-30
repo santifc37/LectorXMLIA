@@ -30,6 +30,7 @@ export interface LineaPrecio {
   precio_unitario?: number | null
   descuento?: number | null
   subtotal?: number | null
+  total_linea?: number | null
   impuestos?: ImpuestoLinea[] | null
 }
 
@@ -135,6 +136,7 @@ export function compararPrecio(
   const cantidad = aNumero(linea.cantidad)
   const precioLista = aNumero(linea.precio_unitario)
   const subtotal = aNumero(linea.subtotal)
+  const totalLinea = aNumero(linea.total_linea)
   const descuento = aNumero(linea.descuento)
   const unidad =
     typeof linea.unidad === 'string' && linea.unidad.trim() ? linea.unidad.trim() : null
@@ -168,7 +170,15 @@ export function compararPrecio(
 
   const tasaIva = tasaDeIva(linea, subtotal)
   const precioSinIva = neto !== null ? redondear(neto) : null
-  const precioConIva = neto !== null ? redondear(neto * (1 + tasaIva / 100)) : null
+
+  // total_linea viene de la extracción del XML e incluye los impuestos.
+  // Se prefiere ese valor para no depender de una tasa de IVA inferida.
+  const precioConIva =
+    totalLinea !== null && totalLinea > 0 && cantidad !== null && cantidad > 0
+      ? redondear(totalLinea / cantidad)
+      : neto !== null
+        ? redondear(neto * (1 + tasaIva / 100))
+        : null
 
   const base = opciones.catalogoIncluyeIva ? 'con_iva' : 'sin_iva'
   const precioFactura = base === 'con_iva' ? precioConIva : precioSinIva
@@ -228,9 +238,10 @@ export function compararPrecio(
 }
 
 /**
- * Compara los precios de todas las líneas. `lineas` y `coincidencias` deben
- * estar en el mismo orden. Para cada línea se usa el mejor candidato; si no
- * hubo coincidencia el resultado es null.
+ * Compara los precios de todas las líneas.
+ * Solo calcula el precio cuando el usuario ha seleccionado explícitamente
+ * un candidato para esa línea. Así se evita comparar contra un producto
+ * incorrecto por elegir automáticamente el primer resultado.
  */
 export function compararPrecios(
   lineas: LineaPrecio[],
@@ -245,15 +256,20 @@ export function compararPrecios(
 
   return lineas.map((linea, indice) => {
     const coincidencia = coincidencias[indice]
-    const candidato = coincidencia.candidatos[0]
 
-    if (coincidencia.estado === 'sin_coincidencia' || !candidato) return null
+    if (!coincidencia.productoSeleccionadoId) return null
+
+    const candidato = coincidencia.candidatos.find(
+      item => item.id === coincidencia.productoSeleccionadoId
+    )
+
+    if (!candidato) return null
 
     return compararPrecio(
       linea,
       { id: candidato.id, nombre: candidato.nombre, precio: candidato.precio },
       opciones,
-      coincidencia.estado !== 'coincidencia_alta'
+      false
     )
   })
 }

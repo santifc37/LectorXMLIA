@@ -6,14 +6,28 @@
 export interface ProductoCatalogo {
   id: string
   nombre: string
-  /** null cuando la API no informa un precio de compra válido. */
   precio_compra: number | null
+  codigo?: string | null
+  sku?: string | null
+  codigo_barras?: string | null
+  codigo_interno?: string | null
+  codigo_proveedor?: string | null
+  referencia?: string | null
 }
 
 export interface ResultadoNormalizacion {
   productos: ProductoCatalogo[]
   /** Registros ignorados: sin ID o nombre, inactivos o repetidos. */
   descartados: number
+}
+
+function campoTexto(registro: Record<string, unknown>, campo: string): string | null {
+  const valor = registro[campo]
+
+  if (typeof valor !== 'string' && typeof valor !== 'number') return null
+
+  const texto = String(valor).trim()
+  return texto || null
 }
 
 function aNumero(valor: unknown): number | null {
@@ -80,7 +94,20 @@ export function normalizarProductos(crudo: unknown): ResultadoNormalizacion {
     porId.set(id, {
       id,
       nombre,
-      precio_compra: aNumero(registro.precio_compra)
+      precio_compra: aNumero(registro.precio_compra),
+      codigo: campoTexto(registro, 'codigo'),
+      sku: campoTexto(registro, 'sku'),
+      codigo_barras:
+        campoTexto(registro, 'codigo_barras') ??
+        campoTexto(registro, 'barcode') ??
+        campoTexto(registro, 'codigoBarras'),
+      codigo_interno:
+        campoTexto(registro, 'codigo_interno') ??
+        campoTexto(registro, 'codigoInterno'),
+      codigo_proveedor: campoTexto(registro, 'codigo_proveedor'),
+      referencia:
+        campoTexto(registro, 'referencia') ??
+        campoTexto(registro, 'ref')
     })
   }
 

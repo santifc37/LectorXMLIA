@@ -4,6 +4,12 @@ interface Producto {
   id: string
   nombre: string
   precio_compra: number | null
+  codigo?: string | null
+  sku?: string | null
+  codigo_barras?: string | null
+  codigo_interno?: string | null
+  codigo_proveedor?: string | null
+  referencia?: string | null
 }
 
 const api = {

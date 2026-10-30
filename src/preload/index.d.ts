@@ -9,6 +9,12 @@ export interface Producto {
   id: string
   nombre: string
   precio_compra: number | null
+  codigo?: string | null
+  sku?: string | null
+  codigo_barras?: string | null
+  codigo_interno?: string | null
+  codigo_proveedor?: string | null
+  referencia?: string | null
 }
 
 export interface EstadoCatalogo {
@@ -51,6 +57,7 @@ export interface CandidatoCoincidencia {
   precio: number | null
   puntuacion: number
   motivo: string
+  codigo?: string | null
 }
 
 export interface ResultadoCoincidencia {
@@ -59,6 +66,7 @@ export interface ResultadoCoincidencia {
   puntuacion: number
   motivo: string
   candidatos: CandidatoCoincidencia[]
+  productoSeleccionadoId: string | null
 }
 
 export type EstadoPrecio = 'aumento' | 'disminucion' | 'igual' | 'sin_referencia'

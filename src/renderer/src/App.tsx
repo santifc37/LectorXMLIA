@@ -13,6 +13,12 @@ interface Producto {
   id: string
   nombre: string
   precio_compra: number | null
+  codigo?: string | null
+  sku?: string | null
+  codigo_barras?: string | null
+  codigo_interno?: string | null
+  codigo_proveedor?: string | null
+  referencia?: string | null
 }
 
 interface ResumenFactura {
@@ -50,6 +56,7 @@ interface CandidatoCoincidencia {
   precio: number | null
   puntuacion: number
   motivo: string
+  codigo?: string | null
 }
 
 interface ResultadoCoincidencia {
@@ -58,6 +65,7 @@ interface ResultadoCoincidencia {
   puntuacion: number
   motivo: string
   candidatos: CandidatoCoincidencia[]
+  productoSeleccionadoId: string | null
 }
 
 type EstadoPrecio = 'aumento' | 'disminucion' | 'igual' | 'sin_referencia'
@@ -106,6 +114,8 @@ function App(): JSX.Element {
     useState<ResultadoCoincidencia[]>([])
 
   const [comparandoProductos, setComparandoProductos] = useState(false)
+  const [seleccionandoCandidato, setSeleccionandoCandidato] =
+    useState<number | null>(null)
 
   // Comparación de precios (misma posición que resultadosCoincidencia) y
   // actualizaciones de precio que el usuario autorizó, por posición.
@@ -382,6 +392,55 @@ function App(): JSX.Element {
     }
   }
 
+  async function seleccionarCandidato(
+    indice: number,
+    productoId: string
+  ): Promise<void> {
+    if (!respuestaGemini) return
+
+    const resultadosActualizados = resultadosCoincidencia.map(
+      (resultado, posicion) =>
+        posicion === indice
+          ? { ...resultado, productoSeleccionadoId: productoId }
+          : resultado
+    )
+
+    setResultadosCoincidencia(resultadosActualizados)
+
+    // Se elimina la comparación anterior mientras se calcula la nueva.
+    setComparacionesPrecio(actual =>
+      actual.map((comparacion, posicion) =>
+        posicion === indice ? null : comparacion
+      )
+    )
+
+    setPreciosAutorizados(actual => {
+      const nuevos = { ...actual }
+      delete nuevos[indice]
+      return nuevos
+    })
+
+    try {
+      setSeleccionandoCandidato(indice)
+      setError('')
+
+      const precios = await window.api.compararPrecios(
+        respuestaGemini.respuesta,
+        resultadosActualizados
+      )
+
+      setComparacionesPrecio(precios)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo comparar el precio del producto seleccionado.'
+      )
+    } finally {
+      setSeleccionandoCandidato(null)
+    }
+  }
+
   function etiquetaArchivo(archivo: ArchivoXML): { texto: string; clase: string } {
     if (archivo.valido) return { texto: 'Factura válida', clase: 'success' }
 
@@ -515,7 +574,6 @@ function App(): JSX.Element {
     const base = comparacion.baseComparacion === 'con_iva' ? 'con IVA' : 'sin IVA'
     const nuevoPrecio = comparacion.precioFactura
 
-    // Solo se puede autorizar el cambio cuando el producto ya está confirmado.
     const puedeAutorizar =
       !comparacion.provisional &&
       comparacion.estado !== 'igual' &&
@@ -533,7 +591,7 @@ function App(): JSX.Element {
 
         <div className="price-grid">
           <span>
-            <small>Precio actual</small>
+            <small>Precio actual del inventario</small>
             <strong>
               {comparacion.precioActual !== null
                 ? formatearPesos(comparacion.precioActual)
@@ -542,7 +600,25 @@ function App(): JSX.Element {
           </span>
 
           <span>
-            <small>Precio factura ({base})</small>
+            <small>Precio de factura sin IVA</small>
+            <strong>
+              {comparacion.precioFacturaSinIva !== null
+                ? formatearPesos(comparacion.precioFacturaSinIva)
+                : '—'}
+            </strong>
+          </span>
+
+          <span>
+            <small>Precio de factura con IVA</small>
+            <strong>
+              {comparacion.precioFacturaConIva !== null
+                ? formatearPesos(comparacion.precioFacturaConIva)
+                : '—'}
+            </strong>
+          </span>
+
+          <span>
+            <small>Precio utilizado para comparar ({base})</small>
             <strong>
               {comparacion.precioFactura !== null
                 ? formatearPesos(comparacion.precioFactura)
@@ -712,9 +788,24 @@ function App(): JSX.Element {
             {resultado.candidatos.length > 0 && (
               <div className="matching-candidates">
                 {resultado.candidatos.map((candidato) => (
-                  <div className="candidate-item" key={candidato.id}>
+                  <button
+                    type="button"
+                    className={`candidate-item candidate-button ${
+                      resultado.productoSeleccionadoId === candidato.id
+                        ? 'selected'
+                        : ''
+                    }`}
+                    key={candidato.id}
+                    onClick={() => void seleccionarCandidato(index, candidato.id)}
+                    disabled={seleccionandoCandidato === index}
+                    aria-pressed={resultado.productoSeleccionadoId === candidato.id}
+                  >
                     <div>
                       <strong>{candidato.nombre}</strong>
+
+                      {candidato.codigo && (
+                        <small>Código: {candidato.codigo}</small>
+                      )}
 
                       <small>
                         {candidato.precio !== null
@@ -730,13 +821,30 @@ function App(): JSX.Element {
                       )}
                     </div>
 
-                    <span>{candidato.puntuacion}%</span>
-                  </div>
+                    <span>
+                      {resultado.productoSeleccionadoId === candidato.id
+                        ? 'Seleccionado'
+                        : `${candidato.puntuacion}% · Elegir`}
+                    </span>
+                  </button>
                 ))}
               </div>
             )}
 
-            {renderComparacionPrecio(index)}
+            {resultado.productoSeleccionadoId ? (
+              seleccionandoCandidato === index ? (
+                <p className="matching-reason">
+                  Calculando comparación de precios...
+                </p>
+              ) : (
+                renderComparacionPrecio(index)
+              )
+            ) : (
+              <p className="selection-hint">
+                Selecciona el producto correcto para comparar su precio.
+                No se actualizará ningún precio automáticamente.
+              </p>
+            )}
           </div>
         ))}
       </article>
@@ -968,55 +1076,9 @@ function App(): JSX.Element {
                   </div>
                 </article>
               </div>
+{renderResultadosCoincidencia()}
 
-              {respuestaGemini && (
-                <article className="panel gemini-response-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <span className="step-number">RESULTADO</span>
-                      <h3>Respuesta de Gemini</h3>
-                    </div>
-
-                    <span className="status-pill success">
-                      Respuesta recibida
-                    </span>
-                  </div>
-
-                  <div className="gemini-response-content">
-                    <strong>Modelo: {respuestaGemini.modelo}</strong>
-                    <pre>{respuestaGemini.respuesta}</pre>
-                  </div>
-                </article>
-              )}
-
-              {renderResultadosCoincidencia()}
-
-              <article className="panel xml-panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="step-number">03</span>
-                    <h3>Contenido del archivo XML</h3>
-                  </div>
-
-                  <span className="status-pill">
-                    {archivoXML
-                      ? 'Archivo cargado'
-                      : 'Esperando archivo'}
-                  </span>
-                </div>
-
-                <div className="xml-viewer">
-                  {archivoXML ? (
-                    <pre>{archivoXML.contenido}</pre>
-                  ) : (
-                    <div className="empty-state">
-                      <span>▤</span>
-                      <strong>No hay ningún XML seleccionado</strong>
-                      <p>El contenido de la factura aparecerá aquí.</p>
-                    </div>
-                  )}
-                </div>
-              </article>
+              
             </div>
           )}
 
@@ -1070,21 +1132,9 @@ function App(): JSX.Element {
                     )}
 
                     {renderResumenArchivo()}
+{renderResultadosCoincidencia()}
 
-                    {respuestaGemini && (
-                      <div className="gemini-response-content">
-                        <strong>
-                          Respuesta de Gemini · {respuestaGemini.modelo}
-                        </strong>
-                        <pre>{respuestaGemini.respuesta}</pre>
-                      </div>
-                    )}
-
-                    {renderResultadosCoincidencia()}
-
-                    <div className="xml-viewer large">
-                      <pre>{archivoXML.contenido}</pre>
-                    </div>
+                    
                   </>
                 ) : (
                   <div className="empty-state">

@@ -4,11 +4,20 @@ export interface ProductoCatalogo {
   nombre: string
   precio?: number
   precio_compra?: number | null
+  codigo?: string | null
+  sku?: string | null
+  codigo_barras?: string | null
+  codigo_interno?: string | null
+  codigo_proveedor?: string | null
+  referencia?: string | null
 }
 
 export interface LineaFactura {
   descripcion: string
   cantidad?: number | null
+  codigo_proveedor?: string | null
+  codigo_comprador?: string | null
+  codigo_barras?: string | null
 }
 
 export interface ResultadoCoincidencia {
@@ -22,7 +31,9 @@ export interface ResultadoCoincidencia {
     precio: number | null
     puntuacion: number
     motivo: string
+    codigo?: string | null
   }[]
+  productoSeleccionadoId: string | null
 }
 
 interface ProductoPreparado {
@@ -296,6 +307,61 @@ function obtenerPrecio(producto: ProductoCatalogo): number | null {
   return null
 }
 
+function normalizarCodigo(valor: unknown): string {
+  if (valor === null || valor === undefined) return ''
+
+  return String(valor)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
+function obtenerCodigosProducto(producto: ProductoCatalogo): string[] {
+  return [
+    producto.codigo,
+    producto.sku,
+    producto.codigo_barras,
+    producto.codigo_interno,
+    producto.codigo_proveedor,
+    producto.referencia
+  ]
+    .map(normalizarCodigo)
+    .filter(Boolean)
+}
+
+function obtenerCodigoFactura(linea: LineaFactura): string[] {
+  return [
+    linea.codigo_barras,
+    linea.codigo_comprador,
+    linea.codigo_proveedor
+  ]
+    .map(normalizarCodigo)
+    .filter(Boolean)
+}
+
+function coincidePorCodigo(
+  linea: LineaFactura,
+  producto: ProductoCatalogo
+): boolean {
+  const codigosFactura = obtenerCodigoFactura(linea)
+  const codigosProducto = obtenerCodigosProducto(producto)
+
+  return codigosFactura.some(codigo => codigosProducto.includes(codigo))
+}
+
+function obtenerCodigoVisible(producto: ProductoCatalogo): string | null {
+  return (
+    producto.codigo_barras ??
+    producto.sku ??
+    producto.codigo ??
+    producto.codigo_interno ??
+    producto.codigo_proveedor ??
+    producto.referencia ??
+    null
+  )
+}
+
 export function compararProducto(
   linea: LineaFactura,
   catalogo: ProductoCatalogo[]
@@ -306,21 +372,26 @@ export function compararProducto(
 
   const candidatos = preparados
     .map(producto => {
-      const resultado = calcularPuntuacion(
-        linea.descripcion,
-        producto
-      )
+      const codigoExacto = coincidePorCodigo(linea, producto.original)
+
+      const resultado = codigoExacto
+        ? {
+            puntuacion: 100,
+            motivo: 'Coincidencia exacta por código de producto.'
+          }
+        : calcularPuntuacion(linea.descripcion, producto)
 
       return {
         id: producto.original.id,
         nombre: producto.original.nombre,
         precio: obtenerPrecio(producto.original),
         puntuacion: resultado.puntuacion,
-        motivo: resultado.motivo
+        motivo: resultado.motivo,
+        codigo: obtenerCodigoVisible(producto.original)
       }
     })
     .sort((a, b) => b.puntuacion - a.puntuacion)
-    .slice(0, 3)
+    .slice(0, 8)
 
   const mejor = candidatos[0]
 
@@ -330,7 +401,8 @@ export function compararProducto(
       estado: 'sin_coincidencia',
       puntuacion: mejor?.puntuacion ?? 0,
       motivo: 'No se encontró un producto suficientemente parecido.',
-      candidatos
+      candidatos,
+      productoSeleccionadoId: null
     }
   }
 
@@ -340,7 +412,8 @@ export function compararProducto(
       estado: 'coincidencia_alta',
       puntuacion: mejor.puntuacion,
       motivo: mejor.motivo,
-      candidatos
+      candidatos,
+      productoSeleccionadoId: null
     }
   }
 
@@ -349,7 +422,8 @@ export function compararProducto(
     estado: 'revision_manual',
     puntuacion: mejor.puntuacion,
     motivo: mejor.motivo,
-    candidatos
+    candidatos,
+    productoSeleccionadoId: null
   }
 }
 

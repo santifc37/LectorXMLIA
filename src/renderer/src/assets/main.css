@@ -874,3 +874,44 @@ td {
   background: #fff7e6;
   color: #b54708;
 }
+
+/* Selección manual de productos candidatos */
+.candidate-button {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.candidate-button:hover:not(:disabled) {
+  border-color: #9aade8;
+  background: #f1f4ff;
+}
+
+.candidate-button.selected {
+  border-color: #5271ce;
+  background: #edf2ff;
+  box-shadow: 0 0 0 1px #5271ce;
+}
+
+.candidate-button > span {
+  color: #3159c9;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.candidate-button:disabled {
+  cursor: wait;
+}
+
+.selection-hint {
+  margin: 12px 0 0;
+  padding: 11px 13px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
