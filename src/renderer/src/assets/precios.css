@@ -80,3 +80,63 @@
   height: 16px;
   cursor: pointer;
 }
+
+/* Cartel: precio de la base de datos vs. precio de la factura */
+.price-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.price-banner-box,
+.price-banner-diff {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 150px;
+  padding: 11px 14px;
+  background: #f8fafc;
+  border: 1px solid #eaecf0;
+  border-radius: 9px;
+}
+
+.price-banner-box.invoice {
+  background: #edf2ff;
+  border-color: #c7d4fb;
+}
+
+.price-banner small {
+  color: #667085;
+  font-size: 11px;
+}
+
+.price-banner strong {
+  color: #101828;
+  font-size: 17px;
+}
+
+.price-banner-arrow {
+  align-self: center;
+  color: #98a2b3;
+  font-size: 18px;
+}
+
+.price-banner-diff.price-aumento {
+  background: #fff7e6;
+  border-color: #f7d9a4;
+}
+
+.price-banner-diff.price-aumento strong {
+  color: #b54708;
+}
+
+.price-banner-diff.price-disminucion {
+  background: #e9f8f0;
+  border-color: #b8e6cd;
+}
+
+.price-banner-diff.price-disminucion strong {
+  color: #168354;
+}

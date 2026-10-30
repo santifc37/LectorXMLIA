@@ -567,6 +567,38 @@ function App(): JSX.Element {
     }))
   }
 
+  // Cartel provisional: el precio de la base de datos ya se conoce al elegir
+  // el producto; el de la factura llega cuando termina el cálculo.
+  function renderCartelCalculando(resultado: ResultadoCoincidencia): JSX.Element {
+    const candidato = resultado.candidatos.find(
+      (item) => item.id === resultado.productoSeleccionadoId
+    )
+
+    return (
+      <div className="price-compare">
+        <div className="price-banner">
+          <div className="price-banner-box">
+            <small>Precio de compra en la base de datos</small>
+            <strong>
+              {candidato && candidato.precio !== null && candidato.precio > 0
+                ? formatearPesos(candidato.precio)
+                : 'Sin precio'}
+            </strong>
+          </div>
+
+          <span className="price-banner-arrow" aria-hidden="true">
+            →
+          </span>
+
+          <div className="price-banner-box invoice">
+            <small>Precio en la factura</small>
+            <strong>Calculando...</strong>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   function renderComparacionPrecio(indice: number): JSX.Element | null {
     const comparacion = comparacionesPrecio[indice]
 
@@ -591,18 +623,38 @@ function App(): JSX.Element {
           <span className={`status-pill ${etiqueta.clase}`}>{etiqueta.texto}</span>
         </div>
 
-        <div className="price-grid">
-          <span>
-            <small>Precio actual del inventario</small>
+        <div className="price-banner">
+          <div className="price-banner-box">
+            <small>Precio de compra en la base de datos</small>
             <strong>
               {comparacion.precioActual !== null
                 ? formatearPesos(comparacion.precioActual)
                 : 'Sin precio'}
             </strong>
+          </div>
+
+          <span className="price-banner-arrow" aria-hidden="true">
+            →
           </span>
 
+          <div className="price-banner-box invoice">
+            <small>Precio en la factura ({base})</small>
+            <strong>
+              {comparacion.precioFactura !== null
+                ? formatearPesos(comparacion.precioFactura)
+                : '—'}
+            </strong>
+          </div>
+
+          <div className={`price-banner-diff price-${comparacion.estado}`}>
+            <small>Diferencia</small>
+            <strong>{formatearVariacion(comparacion)}</strong>
+          </div>
+        </div>
+
+        <div className="price-grid">
           <span>
-            <small>Precio de factura sin IVA</small>
+            <small>Factura sin IVA</small>
             <strong>
               {comparacion.precioFacturaSinIva !== null
                 ? formatearPesos(comparacion.precioFacturaSinIva)
@@ -611,27 +663,11 @@ function App(): JSX.Element {
           </span>
 
           <span>
-            <small>Precio de factura con IVA</small>
+            <small>Factura con IVA</small>
             <strong>
               {comparacion.precioFacturaConIva !== null
                 ? formatearPesos(comparacion.precioFacturaConIva)
                 : '—'}
-            </strong>
-          </span>
-
-          <span>
-            <small>Precio utilizado para comparar ({base})</small>
-            <strong>
-              {comparacion.precioFactura !== null
-                ? formatearPesos(comparacion.precioFactura)
-                : '—'}
-            </strong>
-          </span>
-
-          <span>
-            <small>Diferencia</small>
-            <strong className={`price-${comparacion.estado}`}>
-              {formatearVariacion(comparacion)}
             </strong>
           </span>
 
@@ -808,9 +844,7 @@ function App(): JSX.Element {
 
                         {resultado.productoSeleccionadoId && (
                           seleccionandoCandidato === index ? (
-                            <p className="matching-reason">
-                              Calculando comparación de precios...
-                            </p>
+                            renderCartelCalculando(resultado)
                           ) : (
                             renderComparacionPrecio(index)
                           )
@@ -880,9 +914,7 @@ function App(): JSX.Element {
 
             {resultado.productoSeleccionadoId ? (
               seleccionandoCandidato === index ? (
-                <p className="matching-reason">
-                  Calculando comparación de precios...
-                </p>
+                renderCartelCalculando(resultado)
               ) : (
                 renderComparacionPrecio(index)
               )
