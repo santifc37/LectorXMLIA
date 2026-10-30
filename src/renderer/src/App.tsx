@@ -751,9 +751,10 @@ function App(): JSX.Element {
           </span>
         </div>
 
-        {resultadosCoincidencia.map((resultado, index) => (
-          <div
-            className="matching-item"
+        <ol className="matching-list">
+          {resultadosCoincidencia.map((resultado, index) => (
+            <li
+              className="matching-item"
             key={`${resultado.productoFactura}-${index}`}
           >
             <div className="matching-product-header">
@@ -845,8 +846,9 @@ function App(): JSX.Element {
                 No se actualizará ningún precio automáticamente.
               </p>
             )}
-          </div>
-        ))}
+            </li>
+          ))}
+        </ol>
       </article>
     )
   }

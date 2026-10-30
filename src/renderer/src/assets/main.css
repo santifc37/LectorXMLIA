@@ -915,3 +915,77 @@ td {
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* DASHBOARD COINCIDENCIAS V2 */
+/* Lista visual de productos de la factura */
+.matching-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.matching-list .matching-item {
+  min-width: 0;
+  margin: 0;
+  padding: 17px;
+  border: 1px solid #e4e9f2;
+  border-left: 4px solid #98a2b3;
+  border-radius: 11px;
+  background: #fbfcfe;
+}
+
+.matching-list .matching-item:has(.status-pill.success) {
+  border-left-color: #16a36a;
+  background: #f7fcf9;
+}
+
+.matching-list .matching-item:has(.status-pill.warning) {
+  border-left-color: #e5a000;
+  background: #fffdf7;
+}
+
+.matching-list .matching-product-header {
+  align-items: center;
+}
+
+.matching-list .matching-score {
+  display: inline-flex;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: #eef2f8;
+  font-size: 11px;
+}
+
+.matching-list .matching-reason {
+  margin: 9px 0;
+  line-height: 1.5;
+}
+
+.matching-list .matching-candidates {
+  padding-top: 10px;
+  border-top: 1px solid #e9edf3;
+}
+
+.matching-list .candidate-button {
+  background: #fff;
+}
+
+.matching-list .candidate-button.selected {
+  border-color: #5271ce;
+  background: #edf2ff;
+}
+
+.matching-list .selection-hint {
+  margin-top: 12px;
+}
+
+@media (max-width: 1050px) {
+  .matching-list .matching-item {
+    padding: 13px;
+  }
+}
