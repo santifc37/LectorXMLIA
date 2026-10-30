@@ -99,3 +99,33 @@ export async function obtenerProductosAPI(): Promise<unknown> {
 
   return await respuesta.json()
 }
+
+// Rutas de escritura de la API de Ferretería. Si tu API usa otras rutas o
+// métodos, solo hay que cambiarlas aquí.
+const RUTA_PRODUCTOS = '/productos'
+
+async function leerErrorAPI(respuesta: Response, mensaje: string): Promise<Error> {
+  const datos = await respuesta.json().catch(() => ({}))
+  const detalle =
+    datos && typeof datos === 'object' && 'error' in datos ? String(datos.error) : ''
+
+  return new Error(detalle || `${mensaje} (HTTP ${respuesta.status}).`)
+}
+
+/** Cambia el precio de compra de un producto existente (acción del usuario). */
+export async function actualizarPrecioCompraAPI(
+  productoId: string,
+  precioCompra: number
+): Promise<unknown> {
+  const respuesta = await solicitar(`${RUTA_PRODUCTOS}/${encodeURIComponent(productoId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ precio_compra: precioCompra })
+  })
+
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, 'No se pudo actualizar el precio de compra')
+  }
+
+  return await respuesta.json().catch(() => ({}))
+}

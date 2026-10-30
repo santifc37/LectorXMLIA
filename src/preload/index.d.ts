@@ -117,6 +117,11 @@ export interface AppAPI {
 
   actualizarCatalogo: () => Promise<EstadoCatalogo>
 
+  actualizarPrecioCompra: (
+    productoId: string,
+    precioCompra: number
+  ) => Promise<{ ok: boolean }>
+
   seleccionarYLeerXML: () => Promise<ArchivoXML | null>
 }
 

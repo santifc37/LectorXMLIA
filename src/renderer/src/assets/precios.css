@@ -140,3 +140,20 @@
 .price-banner-diff.price-disminucion strong {
   color: #168354;
 }
+
+/* Cambiar el precio de compra por el de la factura */
+.price-change-button {
+  align-self: flex-start;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.price-applied {
+  padding: 10px 12px;
+  color: #168354;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e9f8f0;
+  border-radius: 8px;
+}

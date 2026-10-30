@@ -125,6 +125,8 @@ function App(): JSX.Element {
     useState<(ComparacionPrecio | null)[]>([])
   const [preciosAutorizados, setPreciosAutorizados] =
     useState<Record<number, boolean>>({})
+  const [actualizandoPrecio, setActualizandoPrecio] =
+    useState<number | null>(null)
 
   useEffect(() => {
     window.api.getAppInfo().then(setAppInfo).catch(() => {})
@@ -560,11 +562,68 @@ function App(): JSX.Element {
     }
   }
 
-  function alternarAutorizacion(indice: number): void {
-    setPreciosAutorizados((actual) => ({
-      ...actual,
-      [indice]: !actual[indice]
-    }))
+  // Cambia en la base de datos el precio de compra por el de la factura.
+  // Solo ocurre cuando el usuario pulsa el botón y lo confirma.
+  async function aplicarPrecioFactura(indice: number): Promise<void> {
+    const comparacion = comparacionesPrecio[indice]
+    const nuevoPrecio = comparacion?.precioFactura ?? null
+
+    if (!comparacion || nuevoPrecio === null || !respuestaGemini) return
+
+    const anterior =
+      comparacion.precioActual !== null
+        ? formatearPesos(comparacion.precioActual)
+        : 'sin precio'
+
+    const confirmado = window.confirm(
+      `¿Cambiar el precio de compra de "${comparacion.productoNombre}"?\n\n` +
+        `Actual: ${anterior}\nNuevo (factura): ${formatearPesos(nuevoPrecio)}`
+    )
+
+    if (!confirmado) return
+
+    try {
+      setActualizandoPrecio(indice)
+      setError('')
+
+      await window.api.actualizarPrecioCompra(comparacion.productoId, nuevoPrecio)
+
+      setProductos((actual) =>
+        actual.map((producto) =>
+          producto.id === comparacion.productoId
+            ? { ...producto, precio_compra: nuevoPrecio }
+            : producto
+        )
+      )
+
+      const resultadosActualizados = resultadosCoincidencia.map((resultado) => ({
+        ...resultado,
+        candidatos: resultado.candidatos.map((candidato) =>
+          candidato.id === comparacion.productoId
+            ? { ...candidato, precio: nuevoPrecio }
+            : candidato
+        )
+      }))
+
+      setResultadosCoincidencia(resultadosActualizados)
+
+      setPreciosAutorizados((actual) => ({ ...actual, [indice]: true }))
+
+      setComparacionesPrecio(
+        await window.api.compararPrecios(
+          respuestaGemini.respuesta,
+          resultadosActualizados
+        )
+      )
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'No se pudo actualizar el precio de compra.'
+      )
+    } finally {
+      setActualizandoPrecio(null)
+    }
   }
 
   // Cartel provisional: el precio de la base de datos ya se conoce al elegir
@@ -687,19 +746,27 @@ function App(): JSX.Element {
           </ul>
         )}
 
-        {puedeAutorizar ? (
-          <label className="price-authorize">
-            <input
-              type="checkbox"
-              checked={Boolean(preciosAutorizados[indice])}
-              onChange={() => alternarAutorizacion(indice)}
-            />
-            {comparacion.estado === 'sin_referencia' ? 'Establecer' : 'Actualizar'} el
-            precio de compra a {formatearPesos(nuevoPrecio)} al confirmar la importación
-          </label>
+        {preciosAutorizados[indice] ? (
+          <div className="price-applied">
+            ✓ Precio de compra actualizado a{' '}
+            {comparacion.precioActual !== null
+              ? formatearPesos(comparacion.precioActual)
+              : 'el de la factura'}
+          </div>
+        ) : puedeAutorizar && nuevoPrecio !== null ? (
+          <button
+            type="button"
+            className="button primary price-change-button"
+            disabled={actualizandoPrecio === indice}
+            onClick={() => void aplicarPrecioFactura(indice)}
+          >
+            {actualizandoPrecio === indice
+              ? 'Actualizando precio...'
+              : `${comparacion.estado === 'sin_referencia' ? 'Establecer' : 'Cambiar'} precio de compra por el de la factura (${formatearPesos(nuevoPrecio)})`}
+          </button>
         ) : comparacion.provisional ? (
           <small className="muted">
-            Confirma el producto en la revisión para poder autorizar un cambio de precio.
+            Confirma el producto en la revisión para poder cambiar el precio.
           </small>
         ) : null}
       </div>
@@ -785,7 +852,7 @@ function App(): JSX.Element {
 
           <span>
             <strong>{preciosAutorizadosTotal}</strong>
-            Cambios de precio autorizados
+            Precios actualizados
           </span>
         </div>
 

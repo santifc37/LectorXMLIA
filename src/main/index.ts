@@ -14,10 +14,14 @@ import { config } from './config'
 import {
   iniciarSesion,
   cerrarSesion,
-  comprobarSesion
+  comprobarSesion,
+  actualizarPrecioCompraAPI
 } from './services/api/api.service'
 
-import { actualizarCatalogo } from './services/catalogo/catalogo.service'
+import {
+  actualizarCatalogo,
+  actualizarPrecioLocal
+} from './services/catalogo/catalogo.service'
 
 import { leerArchivoXML } from './services/xml/xml.service'
 
@@ -83,6 +87,26 @@ app.whenReady().then(() => {
   ipcMain.handle('catalogo:actualizar', async () => {
     return await actualizarCatalogo()
   })
+
+  // Cambio de precio de compra autorizado por el usuario: se envía a la API
+  // y, si responde bien, se refleja también en la copia local del catálogo.
+  ipcMain.handle(
+    'productos:actualizar-precio',
+    async (_, productoId: string, precioCompra: number) => {
+      if (typeof productoId !== 'string' || !productoId.trim()) {
+        throw new Error('Producto no válido.')
+      }
+
+      if (typeof precioCompra !== 'number' || !Number.isFinite(precioCompra) || precioCompra <= 0) {
+        throw new Error('El precio de compra debe ser un número mayor que cero.')
+      }
+
+      await actualizarPrecioCompraAPI(productoId, precioCompra)
+      await actualizarPrecioLocal(productoId, precioCompra)
+
+      return { ok: true }
+    }
+  )
 
   // Comparación de productos de la factura contra el catálogo local
 ipcMain.handle(

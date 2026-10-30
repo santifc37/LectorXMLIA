@@ -43,6 +43,9 @@ const api = {
   actualizarCatalogo: () =>
     ipcRenderer.invoke('catalogo:actualizar'),
 
+  actualizarPrecioCompra: (productoId: string, precioCompra: number) =>
+    ipcRenderer.invoke('productos:actualizar-precio', productoId, precioCompra),
+
   seleccionarYLeerXML: () =>
     ipcRenderer.invoke('xml:seleccionar-y-leer')
 }

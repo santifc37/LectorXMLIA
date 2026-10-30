@@ -112,3 +112,19 @@ export async function actualizarCatalogo(): Promise<EstadoCatalogo> {
     throw error
   }
 }
+
+/** Refleja un cambio de precio ya confirmado por la API en data/productos.json. */
+export async function actualizarPrecioLocal(
+  productoId: string,
+  precioCompra: number
+): Promise<void> {
+  const local = await leerCatalogoLocal().catch(() => null)
+
+  if (!local) return
+
+  const productos = local.productos.map((producto) =>
+    producto.id === productoId ? { ...producto, precio_compra: precioCompra } : producto
+  )
+
+  await guardarCatalogo(productos)
+}
