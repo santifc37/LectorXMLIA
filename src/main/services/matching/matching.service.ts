@@ -3,7 +3,7 @@ export interface ProductoCatalogo {
   id: string
   nombre: string
   precio?: number
-  precio_compra?: number
+  precio_compra?: number | null
 }
 
 export interface LineaFactura {

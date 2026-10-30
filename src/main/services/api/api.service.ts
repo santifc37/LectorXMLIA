@@ -1,22 +1,15 @@
-
-import { app } from 'electron'
-import { join } from 'path'
-import dotenv from 'dotenv'
-
-dotenv.config({
-  path: join(app.getAppPath(), '.env')
-})
-
-const API_URL = process.env.API_URL?.replace(/\/+$/, '')
+import { config } from '../../config'
 
 let cookieSesion: string | null = null
 
 function obtenerUrl(ruta: string): string {
-  if (!API_URL) {
+  const apiUrl = config.apiUrl
+
+  if (!apiUrl) {
     throw new Error('No está configurada la variable API_URL en el archivo .env')
   }
 
-  return `${API_URL}${ruta}`
+  return `${apiUrl}${ruta}`
 }
 
 async function solicitar(
@@ -41,7 +34,9 @@ async function solicitar(
   return respuesta
 }
 
-export async function iniciarSesion(contrasena: string) {
+export async function iniciarSesion(
+  contrasena: string
+): Promise<{ autenticado: boolean }> {
   const respuesta = await fetch(obtenerUrl('/auth/login'), {
     method: 'POST',
     headers: {
@@ -68,7 +63,7 @@ export async function iniciarSesion(contrasena: string) {
   return { autenticado: true }
 }
 
-export async function cerrarSesion() {
+export async function cerrarSesion(): Promise<{ ok: boolean }> {
   if (cookieSesion) {
     await solicitar('/auth/logout', {
       method: 'POST'
@@ -80,7 +75,7 @@ export async function cerrarSesion() {
   return { ok: true }
 }
 
-export async function comprobarSesion() {
+export async function comprobarSesion(): Promise<{ autenticado: boolean }> {
   if (!cookieSesion) {
     return { autenticado: false }
   }
@@ -94,7 +89,7 @@ export async function comprobarSesion() {
   return await respuesta.json()
 }
 
-export async function obtenerProductosAPI() {
+export async function obtenerProductosAPI(): Promise<unknown> {
   const respuesta = await solicitar('/productos?activo=true')
 
   if (!respuesta.ok) {

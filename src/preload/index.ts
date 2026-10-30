@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 interface Producto {
   id: string
   nombre: string
-  precio_compra: number
+  precio_compra: number | null
 }
 
 const api = {
@@ -22,6 +22,9 @@ const api = {
       catalogo
     ),
 
+  compararPrecios: (respuestaGemini: string, coincidencias: unknown[]) =>
+    ipcRenderer.invoke('precios:comparar', respuestaGemini, coincidencias),
+
   iniciarSesion: (contrasena: string) =>
     ipcRenderer.invoke('auth:login', contrasena),
 
@@ -31,8 +34,8 @@ const api = {
   comprobarSesion: () =>
     ipcRenderer.invoke('auth:me'),
 
-  obtenerProductos: () =>
-    ipcRenderer.invoke('catalogo:obtener-productos'),
+  actualizarCatalogo: () =>
+    ipcRenderer.invoke('catalogo:actualizar'),
 
   seleccionarYLeerXML: () =>
     ipcRenderer.invoke('xml:seleccionar-y-leer')

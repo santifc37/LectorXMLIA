@@ -1,6 +1,7 @@
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import './assets/main.css'
+import './assets/precios.css'
 
 interface AppInfo {
   name: string
@@ -11,15 +12,31 @@ interface AppInfo {
 interface Producto {
   id: string
   nombre: string
-  precio_compra: number
+  precio_compra: number | null
+}
+
+interface ResumenFactura {
+  numero: string | null
+  fecha: string | null
+  cufe: string | null
+  moneda: string | null
+  proveedorNombre: string | null
+  proveedorNit: string | null
+  compradorNombre: string | null
+  compradorNit: string | null
+  lineas: number
+  total: number | null
+  subtotal: number | null
 }
 
 interface ArchivoXML {
   nombre: string
   contenido: string
+  contenidoFactura: string
   valido: boolean
   mensaje: string
   tipoDocumento: 'factura' | 'nota_credito' | 'nota_debito' | 'desconocido'
+  resumen: ResumenFactura | null
 }
 
 interface ResultadoGemini {
@@ -43,6 +60,26 @@ interface ResultadoCoincidencia {
   candidatos: CandidatoCoincidencia[]
 }
 
+type EstadoPrecio = 'aumento' | 'disminucion' | 'igual' | 'sin_referencia'
+
+interface ComparacionPrecio {
+  productoId: string
+  productoNombre: string
+  provisional: boolean
+  estado: EstadoPrecio
+  precioActual: number | null
+  precioFactura: number | null
+  precioFacturaSinIva: number | null
+  precioFacturaConIva: number | null
+  tasaIva: number
+  baseComparacion: 'sin_iva' | 'con_iva'
+  diferencia: number | null
+  variacionPct: number | null
+  cantidad: number | null
+  unidad: string | null
+  alertas: string[]
+}
+
 type Seccion = 'inicio' | 'xml' | 'catalogo'
 
 function App(): JSX.Element {
@@ -55,6 +92,10 @@ function App(): JSX.Element {
 
   const [productos, setProductos] = useState<Producto[]>([])
   const [cargandoProductos, setCargandoProductos] = useState(false)
+  const [catalogoActualizadoEn, setCatalogoActualizadoEn] =
+    useState<string | null>(null)
+  const [catalogoOrigen, setCatalogoOrigen] =
+    useState<'api' | 'local' | null>(null)
 
   const [archivoXML, setArchivoXML] = useState<ArchivoXML | null>(null)
   const [procesandoGemini, setProcesandoGemini] = useState(false)
@@ -66,11 +107,30 @@ function App(): JSX.Element {
 
   const [comparandoProductos, setComparandoProductos] = useState(false)
 
+  // Comparación de precios (misma posición que resultadosCoincidencia) y
+  // actualizaciones de precio que el usuario autorizó, por posición.
+  const [comparacionesPrecio, setComparacionesPrecio] =
+    useState<(ComparacionPrecio | null)[]>([])
+  const [preciosAutorizados, setPreciosAutorizados] =
+    useState<Record<number, boolean>>({})
+
   useEffect(() => {
     window.api.getAppInfo().then(setAppInfo).catch(() => {})
 
     window.api.comprobarSesion()
-      .then((resultado) => setAutenticado(resultado.autenticado))
+      .then((resultado) => {
+        setAutenticado(resultado.autenticado)
+
+        if (resultado.autenticado) {
+          void cargarCatalogo().catch((err) =>
+            setError(
+              err instanceof Error
+                ? err.message
+                : 'No se pudo cargar el catálogo.'
+            )
+          )
+        }
+      })
       .catch(() => setAutenticado(false))
   }, [])
 
@@ -88,6 +148,15 @@ function App(): JSX.Element {
 
       setAutenticado(true)
       setContrasena('')
+
+      // Se descarga el catálogo en segundo plano al iniciar sesión.
+      void cargarCatalogo().catch((err) =>
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo cargar el catálogo.'
+        )
+      )
     } catch (err) {
       setError(
         err instanceof Error
@@ -107,7 +176,11 @@ function App(): JSX.Element {
       setArchivoXML(null)
       setRespuestaGemini(null)
       setResultadosCoincidencia([])
+      setComparacionesPrecio([])
+      setPreciosAutorizados({})
       setProductos([])
+      setCatalogoActualizadoEn(null)
+      setCatalogoOrigen(null)
       setSeccion('inicio')
       setError('')
     } catch (err) {
@@ -119,23 +192,38 @@ function App(): JSX.Element {
     }
   }
 
-  async function cargarProductos(): Promise<void> {
+  // Descarga el catálogo desde la API (o usa la copia local si la API no
+  // responde) y lo deja disponible para toda la aplicación.
+  async function cargarCatalogo(): Promise<Producto[]> {
     try {
       setCargandoProductos(true)
+
+      const estado = await window.api.actualizarCatalogo()
+
+      setProductos(estado.productos)
+      setCatalogoActualizadoEn(estado.actualizadoEn)
+      setCatalogoOrigen(estado.origen)
+
+      if (estado.advertencia) {
+        setError(estado.advertencia)
+      }
+
+      return estado.productos
+    } finally {
+      setCargandoProductos(false)
+    }
+  }
+
+  async function actualizarCatalogoManual(): Promise<void> {
+    try {
       setError('')
-
-      const resultado = await window.api.obtenerProductos()
-
-      setProductos(resultado)
-      setSeccion('catalogo')
+      await cargarCatalogo()
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'No se pudieron cargar los productos.'
+          : 'No se pudo actualizar el catálogo.'
       )
-    } finally {
-      setCargandoProductos(false)
     }
   }
 
@@ -144,6 +232,8 @@ function App(): JSX.Element {
       setError('')
       setRespuestaGemini(null)
       setResultadosCoincidencia([])
+      setComparacionesPrecio([])
+      setPreciosAutorizados({})
 
       const resultado = await window.api.seleccionarYLeerXML()
 
@@ -166,16 +256,23 @@ function App(): JSX.Element {
       return
     }
 
+    if (!archivoXML.valido) {
+      setError(archivoXML.mensaje)
+      return
+    }
+
     try {
       setProcesandoGemini(true)
       setComparandoProductos(false)
       setError('')
       setRespuestaGemini(null)
       setResultadosCoincidencia([])
+      setComparacionesPrecio([])
+      setPreciosAutorizados({})
 
       // 1. Extraer los datos de la factura con Gemini.
       const resultado: ResultadoGemini =
-        await window.api.procesarXMLConGemini(archivoXML.contenido)
+        await window.api.procesarXMLConGemini(archivoXML.contenidoFactura)
 
       setRespuestaGemini(resultado)
 
@@ -185,6 +282,7 @@ function App(): JSX.Element {
         productos: {
           descripcion: string
           cantidad?: number | null
+          subtotal?: number | string | null
         }[]
       }
 
@@ -204,18 +302,47 @@ function App(): JSX.Element {
         throw new Error('La factura no contiene productos para comparar.')
       }
 
+      // Controles cruzados contra el XML (leído localmente): si Gemini omitió
+      // líneas, inventó otras o se equivocó en un valor, se detecta aquí.
+      const avisos: string[] = []
+
+      if (archivoXML.resumen) {
+        const { lineas, subtotal } = archivoXML.resumen
+
+        if (factura.productos.length !== lineas) {
+          avisos.push(
+            `el XML tiene ${lineas} líneas, pero Gemini extrajo ${factura.productos.length}.`
+          )
+        }
+
+        const subtotales = factura.productos.map((producto) =>
+          producto.subtotal === null || producto.subtotal === undefined
+            ? NaN
+            : Number(producto.subtotal)
+        )
+
+        if (subtotal !== null && subtotales.every(Number.isFinite)) {
+          const suma = subtotales.reduce((total, valor) => total + valor, 0)
+
+          if (Math.abs(suma - subtotal) > Math.max(2, subtotal * 0.005)) {
+            avisos.push(
+              `la suma de los subtotales extraídos (${formatearPesos(suma)}) no coincide con la del XML (${formatearPesos(subtotal)}).`
+            )
+          }
+        }
+      }
+
+      if (avisos.length > 0) {
+        setError(
+          `Atención: ${avisos.join(' Además, ')} Revisa la extracción antes de actualizar precios.`
+        )
+      }
+
       // 3. Obtener el catálogo si todavía no está cargado.
       let catalogo = productos
 
       if (catalogo.length === 0) {
-        setCargandoProductos(true)
-
-        try {
-          catalogo = await window.api.obtenerProductos()
-          setProductos(catalogo)
-        } finally {
-          setCargandoProductos(false)
-        }
+        catalogo = await cargarCatalogo()
       }
 
       if (catalogo.length === 0) {
@@ -234,6 +361,14 @@ function App(): JSX.Element {
         )
 
       setResultadosCoincidencia(coincidencias)
+
+      // 5. Comparar los precios de la factura con los del inventario.
+      const precios = await window.api.compararPrecios(
+        resultado.respuesta,
+        coincidencias
+      )
+
+      setComparacionesPrecio(precios)
     } catch (err) {
       setError(
         err instanceof Error
@@ -245,6 +380,216 @@ function App(): JSX.Element {
       setComparandoProductos(false)
       setCargandoProductos(false)
     }
+  }
+
+  function etiquetaArchivo(archivo: ArchivoXML): { texto: string; clase: string } {
+    if (archivo.valido) return { texto: 'Factura válida', clase: 'success' }
+
+    if (archivo.tipoDocumento === 'nota_credito') {
+      return { texto: 'Nota crédito', clase: 'warning' }
+    }
+
+    if (archivo.tipoDocumento === 'nota_debito') {
+      return { texto: 'Nota débito', clase: 'warning' }
+    }
+
+    return { texto: 'No válido', clase: 'warning' }
+  }
+
+  function formatearTotal(total: number, moneda: string | null): string {
+    // Solo se acepta un código de moneda bien formado; si no, pesos.
+    const codigo = moneda && /^[A-Z]{3}$/.test(moneda) ? moneda : 'COP'
+
+    return total.toLocaleString('es-CO', { style: 'currency', currency: codigo })
+  }
+
+  function renderResumenArchivo(): JSX.Element | null {
+    const resumen = archivoXML?.resumen
+
+    if (!resumen) return null
+
+    return (
+      <>
+        <div className="matching-summary">
+          <span>
+            <strong>{resumen.lineas}</strong>
+            Líneas
+          </span>
+
+          <span>
+            <strong>{resumen.numero ?? '—'}</strong>
+            Factura
+          </span>
+
+          <span>
+            <strong>{resumen.fecha ?? '—'}</strong>
+            Fecha
+          </span>
+
+          <span>
+            <strong>
+              {resumen.total !== null ? formatearTotal(resumen.total, resumen.moneda) : '—'}
+            </strong>
+            Total
+          </span>
+        </div>
+
+        <p className="matching-reason">
+          Proveedor: {resumen.proveedorNombre ?? 'Sin nombre'} · NIT{' '}
+          {resumen.proveedorNit ?? 'no identificado'}
+        </p>
+      </>
+    )
+  }
+
+  function formatearPesos(valor: number): string {
+    return valor.toLocaleString('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    })
+  }
+
+  // Los códigos de unidad de la DIAN (UN/CEFACT) se muestran con su nombre
+  // común; los que no se conocen se dejan tal cual vienen en la factura.
+  function unidadLegible(unidad: string | null): string {
+    if (!unidad) return ''
+
+    const equivalencias: Record<string, string> = {
+      '94': 'UND',
+      EA: 'UND',
+      NIU: 'UND',
+      H87: 'UND',
+      KGM: 'kg',
+      GRM: 'g',
+      MTR: 'm',
+      LTR: 'L'
+    }
+
+    return equivalencias[unidad.toUpperCase()] ?? unidad
+  }
+
+  function formatearVariacion(comparacion: ComparacionPrecio): string {
+    if (comparacion.diferencia === null || comparacion.variacionPct === null) {
+      return '—'
+    }
+
+    const signo =
+      comparacion.diferencia > 0 ? '+' : comparacion.diferencia < 0 ? '−' : ''
+
+    const porcentaje = Math.abs(comparacion.variacionPct).toLocaleString(
+      'es-CO',
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+    )
+
+    return `${signo}${formatearPesos(Math.abs(comparacion.diferencia))} (${signo}${porcentaje} %)`
+  }
+
+  function etiquetaPrecio(estado: EstadoPrecio): { texto: string; clase: string } {
+    switch (estado) {
+      case 'aumento':
+        return { texto: 'Precio más alto', clase: 'warning' }
+      case 'disminucion':
+        return { texto: 'Precio más bajo', clase: 'success' }
+      case 'igual':
+        return { texto: 'Precio igual', clase: '' }
+      default:
+        return { texto: 'Sin precio de referencia', clase: '' }
+    }
+  }
+
+  function alternarAutorizacion(indice: number): void {
+    setPreciosAutorizados((actual) => ({
+      ...actual,
+      [indice]: !actual[indice]
+    }))
+  }
+
+  function renderComparacionPrecio(indice: number): JSX.Element | null {
+    const comparacion = comparacionesPrecio[indice]
+
+    if (!comparacion) return null
+
+    const etiqueta = etiquetaPrecio(comparacion.estado)
+    const base = comparacion.baseComparacion === 'con_iva' ? 'con IVA' : 'sin IVA'
+    const nuevoPrecio = comparacion.precioFactura
+
+    // Solo se puede autorizar el cambio cuando el producto ya está confirmado.
+    const puedeAutorizar =
+      !comparacion.provisional &&
+      comparacion.estado !== 'igual' &&
+      nuevoPrecio !== null
+
+    return (
+      <div className="price-compare">
+        <div className="price-compare-head">
+          <small>
+            COMPARACIÓN DE PRECIOS{comparacion.provisional ? ' · PROVISIONAL' : ''}
+          </small>
+
+          <span className={`status-pill ${etiqueta.clase}`}>{etiqueta.texto}</span>
+        </div>
+
+        <div className="price-grid">
+          <span>
+            <small>Precio actual</small>
+            <strong>
+              {comparacion.precioActual !== null
+                ? formatearPesos(comparacion.precioActual)
+                : 'Sin precio'}
+            </strong>
+          </span>
+
+          <span>
+            <small>Precio factura ({base})</small>
+            <strong>
+              {comparacion.precioFactura !== null
+                ? formatearPesos(comparacion.precioFactura)
+                : '—'}
+            </strong>
+          </span>
+
+          <span>
+            <small>Diferencia</small>
+            <strong className={`price-${comparacion.estado}`}>
+              {formatearVariacion(comparacion)}
+            </strong>
+          </span>
+
+          <span>
+            <small>Cantidad</small>
+            <strong>
+              {comparacion.cantidad ?? '—'} {unidadLegible(comparacion.unidad)}
+            </strong>
+          </span>
+        </div>
+
+        {comparacion.alertas.length > 0 && (
+          <ul className="price-alerts">
+            {comparacion.alertas.map((alerta) => (
+              <li key={alerta}>{alerta}</li>
+            ))}
+          </ul>
+        )}
+
+        {puedeAutorizar ? (
+          <label className="price-authorize">
+            <input
+              type="checkbox"
+              checked={Boolean(preciosAutorizados[indice])}
+              onChange={() => alternarAutorizacion(indice)}
+            />
+            {comparacion.estado === 'sin_referencia' ? 'Establecer' : 'Actualizar'} el
+            precio de compra a {formatearPesos(nuevoPrecio)} al confirmar la importación
+          </label>
+        ) : comparacion.provisional ? (
+          <small className="muted">
+            Confirma el producto en la revisión para poder autorizar un cambio de precio.
+          </small>
+        ) : null}
+      </div>
+    )
   }
 
   function renderResultadosCoincidencia(): JSX.Element | null {
@@ -275,6 +620,16 @@ function App(): JSX.Element {
       (resultado) => resultado.estado === 'sin_coincidencia'
     ).length
 
+    const preciosMasAltos = comparacionesPrecio.filter(
+      (comparacion) => comparacion?.estado === 'aumento'
+    ).length
+
+    const preciosMasBajos = comparacionesPrecio.filter(
+      (comparacion) => comparacion?.estado === 'disminucion'
+    ).length
+
+    const preciosAutorizadosTotal = Object.values(preciosAutorizados).filter(Boolean).length
+
     return (
       <article className="panel matching-panel">
         <div className="panel-heading">
@@ -302,6 +657,21 @@ function App(): JSX.Element {
           <span>
             <strong>{sinCoincidencia}</strong>
             Sin coincidencia
+          </span>
+
+          <span>
+            <strong>{preciosMasAltos}</strong>
+            Precios más altos
+          </span>
+
+          <span>
+            <strong>{preciosMasBajos}</strong>
+            Precios más bajos
+          </span>
+
+          <span>
+            <strong>{preciosAutorizadosTotal}</strong>
+            Cambios de precio autorizados
           </span>
         </div>
 
@@ -365,6 +735,8 @@ function App(): JSX.Element {
                 ))}
               </div>
             )}
+
+            {renderComparacionPrecio(index)}
           </div>
         ))}
       </article>
@@ -458,8 +830,7 @@ function App(): JSX.Element {
 
           <button
             className={`nav-button ${seccion === 'catalogo' ? 'active' : ''}`}
-            onClick={() => void cargarProductos()}
-            disabled={cargandoProductos}
+            onClick={() => setSeccion('catalogo')}
           >
             <span>▦</span> Catálogo
           </button>
@@ -538,9 +909,13 @@ function App(): JSX.Element {
                         <small>{archivoXML.mensaje}</small>
                       </div>
 
-                      <span className="status-pill success">Recibido</span>
+                      <span className={`status-pill ${etiquetaArchivo(archivoXML).clase}`}>
+                        {etiquetaArchivo(archivoXML).texto}
+                      </span>
                     </div>
                   )}
+
+                  {archivoXML && renderResumenArchivo()}
                 </article>
 
                 <article className="panel">
@@ -566,7 +941,7 @@ function App(): JSX.Element {
                     <button
                       className="button primary full"
                       onClick={() => void enviarAGemini()}
-                      disabled={!archivoXML || procesandoGemini}
+                      disabled={!archivoXML || !archivoXML.valido || procesandoGemini}
                     >
                       {procesandoGemini
                         ? 'Procesando factura...'
@@ -577,6 +952,10 @@ function App(): JSX.Element {
                       <small className="muted">
                         Primero debes seleccionar una factura.
                       </small>
+                    )}
+
+                    {archivoXML && !archivoXML.valido && (
+                      <small className="muted">{archivoXML.mensaje}</small>
                     )}
 
                     {procesandoGemini && (
@@ -671,16 +1050,26 @@ function App(): JSX.Element {
                         <small>{archivoXML.mensaje}</small>
                       </div>
 
+                      <span className={`status-pill ${etiquetaArchivo(archivoXML).clase}`}>
+                        {etiquetaArchivo(archivoXML).texto}
+                      </span>
+
                       <button
                         className="button primary"
                         onClick={() => void enviarAGemini()}
-                        disabled={procesandoGemini}
+                        disabled={!archivoXML.valido || procesandoGemini}
                       >
                         {procesandoGemini
                           ? 'Procesando...'
                           : 'Procesar factura'}
                       </button>
                     </div>
+
+                    {!archivoXML.valido && (
+                      <p className="matching-reason">{archivoXML.mensaje}</p>
+                    )}
+
+                    {renderResumenArchivo()}
 
                     {respuestaGemini && (
                       <div className="gemini-response-content">
@@ -727,7 +1116,7 @@ function App(): JSX.Element {
 
                 <button
                   className="button secondary"
-                  onClick={() => void cargarProductos()}
+                  onClick={() => void actualizarCatalogoManual()}
                   disabled={cargandoProductos}
                 >
                   {cargandoProductos ? 'Actualizando...' : 'Actualizar'}
@@ -738,6 +1127,19 @@ function App(): JSX.Element {
                 <div className="catalog-summary">
                   <strong>{productos.length}</strong>
                   <span>productos encontrados</span>
+
+                  {catalogoActualizadoEn && (
+                    <span>
+                      ·{' '}
+                      {catalogoOrigen === 'api'
+                        ? 'Actualizado'
+                        : 'Copia local del'}{' '}
+                      {new Date(catalogoActualizadoEn).toLocaleString('es-CO', {
+                        dateStyle: 'medium',
+                        timeStyle: 'short'
+                      })}
+                    </span>
+                  )}
                 </div>
 
                 <div className="table-container">
@@ -756,13 +1158,12 @@ function App(): JSX.Element {
                           <td>{producto.nombre}</td>
                           <td>{producto.id}</td>
                           <td>
-                            {Number(producto.precio_compra).toLocaleString(
-                              'es-CO',
-                              {
-                                style: 'currency',
-                                currency: 'COP'
-                              }
-                            )}
+                            {producto.precio_compra !== null
+                              ? producto.precio_compra.toLocaleString('es-CO', {
+                                  style: 'currency',
+                                  currency: 'COP'
+                                })
+                              : 'Sin precio'}
                           </td>
                         </tr>
                       ))}

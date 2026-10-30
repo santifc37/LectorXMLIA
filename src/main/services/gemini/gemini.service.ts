@@ -1,15 +1,8 @@
+import { GoogleGenAI, ThinkingLevel } from '@google/genai'
+import { config } from '../../config'
 
-import { app } from 'electron'
-import { join } from 'path'
-import dotenv from 'dotenv'
-import { GoogleGenAI } from '@google/genai'
-
-dotenv.config({
-  path: join(app.getAppPath(), '.env')
-})
-
-const API_KEY = process.env.GEMINI_API_KEY
-const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+const API_KEY = config.geminiApiKey
+const MODEL = config.geminiModel
 
 export interface ProductoFactura {
   descripcion: string
@@ -156,7 +149,7 @@ for (let intento = 1; intento <= 3; intento++) {
       config: {
         responseMimeType: 'application/json',
         thinkingConfig: {
-          thinkingLevel: 'MEDIUM'
+          thinkingLevel: ThinkingLevel.MEDIUM
         }
       }
     })
@@ -169,7 +162,8 @@ for (let intento = 1; intento <= 3; intento++) {
           ? 'Gemini sigue experimentando alta demanda. Intenta nuevamente dentro de unos minutos.'
           : error instanceof Error
             ? error.message
-            : 'Error al comunicarse con Gemini.'
+            : 'Error al comunicarse con Gemini.',
+        { cause: error }
       )
     }
 

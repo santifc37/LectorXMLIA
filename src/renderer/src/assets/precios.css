@@ -1,0 +1,82 @@
+/* Comparación de precios (paso 3). Usa la misma paleta de main.css. */
+
+.price-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #eaecf0;
+  border-radius: 9px;
+}
+
+.price-compare-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.price-compare-head small {
+  color: #667085;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.price-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.price-grid span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+}
+
+.price-grid small {
+  color: #667085;
+  font-size: 11px;
+}
+
+.price-grid strong {
+  color: #101828;
+  font-size: 14px;
+}
+
+.price-grid strong.price-aumento {
+  color: #b54708;
+}
+
+.price-grid strong.price-disminucion {
+  color: #168354;
+}
+
+.price-alerts {
+  margin: 0;
+  padding: 10px 12px 10px 28px;
+  background: #fff7e6;
+  border-radius: 8px;
+  color: #b54708;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.price-authorize {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #101828;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.price-authorize input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}

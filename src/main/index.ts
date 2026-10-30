@@ -4,14 +4,20 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { procesarXMLConGemini } from './services/gemini/gemini.service'
 import { compararFacturaConCatalogo } from './services/matching/matching.service'
-import type { ProductoCatalogo } from './services/matching/matching.service'
+import type {
+  ProductoCatalogo,
+  ResultadoCoincidencia
+} from './services/matching/matching.service'
+import { compararPrecios } from './services/precios/precios.service'
+import { config } from './config'
 
 import {
   iniciarSesion,
   cerrarSesion,
-  comprobarSesion,
-  obtenerProductosAPI
+  comprobarSesion
 } from './services/api/api.service'
+
+import { actualizarCatalogo } from './services/catalogo/catalogo.service'
 
 import { leerArchivoXML } from './services/xml/xml.service'
 
@@ -56,8 +62,8 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('gemini:procesar-xml', async (_, xml: string) => {
-  return await procesarXMLConGemini(xml)
-})
+    return await procesarXMLConGemini(xml)
+  })
 
   // Autenticación
   ipcMain.handle('auth:login', async (_, contrasena: string) => {
@@ -72,9 +78,10 @@ app.whenReady().then(() => {
     return await comprobarSesion()
   })
 
-  // Productos
-  ipcMain.handle('catalogo:obtener-productos', async () => {
-    return await obtenerProductosAPI()
+  // Catálogo: descarga desde la API y guarda data/productos.json.
+  // Si la API no responde, usa la copia local.
+  ipcMain.handle('catalogo:actualizar', async () => {
+    return await actualizarCatalogo()
   })
 
   // Comparación de productos de la factura contra el catálogo local
@@ -107,6 +114,33 @@ ipcMain.handle(
     )
   }
 )
+
+  // Comparación de precios: precio de la factura vs. precio de compra actual.
+  // Se calcula en código; Gemini solo aporta los datos de la factura.
+  ipcMain.handle(
+    'precios:comparar',
+    async (_, respuestaGemini: string, coincidencias: ResultadoCoincidencia[]) => {
+      let factura
+
+      try {
+        factura = JSON.parse(respuestaGemini)
+      } catch {
+        throw new Error('La respuesta de Gemini no contiene un JSON válido.')
+      }
+
+      if (!Array.isArray(factura.productos)) {
+        throw new Error('La factura no contiene una lista válida de productos.')
+      }
+
+      if (!Array.isArray(coincidencias)) {
+        throw new Error('No se recibieron coincidencias válidas.')
+      }
+
+      return compararPrecios(factura.productos, coincidencias, {
+        catalogoIncluyeIva: config.precioCompraIncluyeIva
+      })
+    }
+  )
 
   // Selección y lectura de XML
   ipcMain.handle('xml:seleccionar-y-leer', async () => {

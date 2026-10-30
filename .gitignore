@@ -6,3 +6,6 @@ out
 *.log*
 .env/
 .env
+.backup-paso-1/
+.backup-paso-2/
+.backup-paso-3/
