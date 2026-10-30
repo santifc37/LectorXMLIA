@@ -136,3 +136,51 @@
     align-items: flex-start;
   }
 }
+
+/* Alta manual de producto nuevo */
+.add-product-button {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+.new-product-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #c7d4fb;
+  border-radius: 10px;
+}
+
+.new-product-form strong {
+  color: #1d2939;
+  font-size: 13px;
+}
+
+.new-product-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.new-product-form input {
+  padding: 9px 11px;
+  color: #172033;
+  background: #f8fafc;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+}
+
+.new-product-form input:focus {
+  outline: 2px solid #5271ce;
+  outline-offset: 1px;
+}
+
+.new-product-actions {
+  display: flex;
+  gap: 8px;
+}

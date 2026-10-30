@@ -46,6 +46,12 @@ const api = {
   actualizarPrecioCompra: (productoId: string, precioCompra: number) =>
     ipcRenderer.invoke('productos:actualizar-precio', productoId, precioCompra),
 
+  crearProducto: (nombre: string, precioCompra: number) =>
+    ipcRenderer.invoke('productos:crear', nombre, precioCompra),
+
+  precioLineaFactura: (respuestaGemini: string, indice: number) =>
+    ipcRenderer.invoke('precios:linea', respuestaGemini, indice),
+
   seleccionarYLeerXML: () =>
     ipcRenderer.invoke('xml:seleccionar-y-leer')
 }

@@ -8,14 +8,15 @@ import type {
   ProductoCatalogo,
   ResultadoCoincidencia
 } from './services/matching/matching.service'
-import { compararPrecios } from './services/precios/precios.service'
+import { compararPrecios, compararPrecio } from './services/precios/precios.service'
 import { config } from './config'
 
 import {
   iniciarSesion,
   cerrarSesion,
   comprobarSesion,
-  actualizarPrecioCompraAPI
+  actualizarPrecioCompraAPI,
+  crearProductoAPI
 } from './services/api/api.service'
 
 import {
@@ -107,6 +108,47 @@ app.whenReady().then(() => {
       return { ok: true }
     }
   )
+
+  // Alta manual de un producto que no existe en el inventario.
+  ipcMain.handle(
+    'productos:crear',
+    async (_, nombre: string, precioCompra: number) => {
+      const nombreLimpio = typeof nombre === 'string' ? nombre.trim() : ''
+
+      if (!nombreLimpio) {
+        throw new Error('El nombre del producto es obligatorio.')
+      }
+
+      if (typeof precioCompra !== 'number' || !Number.isFinite(precioCompra) || precioCompra < 0) {
+        throw new Error('El precio de compra no es válido.')
+      }
+
+      return await crearProductoAPI(nombreLimpio, precioCompra)
+    }
+  )
+
+  // Precio de una línea de la factura (sin comparar con ningún producto).
+  ipcMain.handle('precios:linea', async (_, respuestaGemini: string, indice: number) => {
+    let factura
+
+    try {
+      factura = JSON.parse(respuestaGemini)
+    } catch {
+      throw new Error('La respuesta de Gemini no contiene un JSON válido.')
+    }
+
+    const linea = Array.isArray(factura.productos) ? factura.productos[indice] : undefined
+
+    if (!linea) {
+      throw new Error('No se encontró la línea de la factura.')
+    }
+
+    return compararPrecio(
+      linea,
+      { id: '', nombre: '', precio: null },
+      { catalogoIncluyeIva: config.precioCompraIncluyeIva }
+    )
+  })
 
   // Comparación de productos de la factura contra el catálogo local
 ipcMain.handle(

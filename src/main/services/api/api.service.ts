@@ -129,3 +129,37 @@ export async function actualizarPrecioCompraAPI(
 
   return await respuesta.json().catch(() => ({}))
 }
+
+export interface ProductoCreado {
+  id: string
+  nombre: string
+  precio_compra: number
+}
+
+/** Crea un producto nuevo (acción manual del usuario, nunca automática). */
+export async function crearProductoAPI(
+  nombre: string,
+  precioCompra: number
+): Promise<ProductoCreado> {
+  const respuesta = await solicitar(RUTA_PRODUCTOS, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nombre, precio_compra: precioCompra })
+  })
+
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, 'No se pudo crear el producto')
+  }
+
+  const datos = (await respuesta.json().catch(() => ({}))) as Record<string, unknown>
+  const anidado = [datos.producto, datos.data].find(
+    (valor): valor is Record<string, unknown> => Boolean(valor) && typeof valor === 'object'
+  )
+  const id = (anidado ?? datos).id
+
+  if (typeof id !== 'string' && typeof id !== 'number') {
+    throw new Error('El producto se creó, pero la API no devolvió su ID. Actualiza el catálogo.')
+  }
+
+  return { id: String(id), nombre, precio_compra: precioCompra }
+}

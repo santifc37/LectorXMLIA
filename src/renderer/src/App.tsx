@@ -4,6 +4,7 @@ import './assets/main.css'
 import './assets/precios.css'
 import './assets/candidatos.css'
 import { ListaCandidatos } from './components/ListaCandidatos'
+import { FormularioProductoNuevo } from './components/FormularioProductoNuevo'
 
 interface AppInfo {
   name: string
@@ -127,6 +128,11 @@ function App(): JSX.Element {
     useState<Record<number, boolean>>({})
   const [actualizandoPrecio, setActualizandoPrecio] =
     useState<number | null>(null)
+
+  // Alta manual de un producto que no existe en el inventario.
+  const [formularioNuevo, setFormularioNuevo] =
+    useState<{ indice: number; precio: number | null } | null>(null)
+  const [creandoProducto, setCreandoProducto] = useState(false)
 
   useEffect(() => {
     window.api.getAppInfo().then(setAppInfo).catch(() => {})
@@ -626,6 +632,116 @@ function App(): JSX.Element {
     }
   }
 
+  async function abrirFormularioNuevo(indice: number): Promise<void> {
+    if (!respuestaGemini) return
+
+    let precio: number | null = null
+
+    try {
+      setError('')
+      const linea = await window.api.precioLineaFactura(respuestaGemini.respuesta, indice)
+      precio = linea.precioFactura
+    } catch {
+      // Sin precio sugerido: el usuario lo escribe a mano.
+    }
+
+    setFormularioNuevo({ indice, precio })
+  }
+
+  async function crearProductoNuevo(
+    indice: number,
+    nombre: string,
+    precioCompra: number
+  ): Promise<void> {
+    if (!respuestaGemini) return
+
+    const confirmado = window.confirm(
+      `¿Crear el producto "${nombre}" en el inventario con precio de compra ${formatearPesos(precioCompra)}?`
+    )
+
+    if (!confirmado) return
+
+    try {
+      setCreandoProducto(true)
+      setError('')
+
+      const creado = await window.api.crearProducto(nombre, precioCompra)
+
+      // Se refresca el catálogo para que el producto nuevo quede disponible.
+      await cargarCatalogo().catch(() => undefined)
+
+      const resultadosActualizados = resultadosCoincidencia.map((resultado, posicion) =>
+        posicion === indice
+          ? {
+              ...resultado,
+              productoSeleccionadoId: creado.id,
+              candidatos: [
+                {
+                  id: creado.id,
+                  nombre: creado.nombre,
+                  precio: creado.precio_compra,
+                  puntuacion: 100,
+                  motivo: 'Producto creado manualmente.',
+                  codigo: null
+                },
+                ...resultado.candidatos
+              ]
+            }
+          : resultado
+      )
+
+      setResultadosCoincidencia(resultadosActualizados)
+      setFormularioNuevo(null)
+
+      setComparacionesPrecio(
+        await window.api.compararPrecios(
+          respuestaGemini.respuesta,
+          resultadosActualizados
+        )
+      )
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'No se pudo crear el producto.'
+      )
+    } finally {
+      setCreandoProducto(false)
+    }
+  }
+
+  // Botón o formulario para agregar el producto cuando no existe en el inventario.
+  function renderProductoNuevo(
+    resultado: ResultadoCoincidencia,
+    indice: number
+  ): JSX.Element | null {
+    if (resultado.productoSeleccionadoId) return null
+
+    if (formularioNuevo?.indice === indice) {
+      return (
+        <FormularioProductoNuevo
+          nombreInicial={resultado.productoFactura}
+          precioInicial={formularioNuevo.precio}
+          guardando={creandoProducto}
+          onGuardar={(nombre, precio) => void crearProductoNuevo(indice, nombre, precio)}
+          onCancelar={() => setFormularioNuevo(null)}
+        />
+      )
+    }
+
+    if (resultado.candidatos.length > 0 && resultado.estado !== 'sin_coincidencia') {
+      return null
+    }
+
+    return (
+      <button
+        type="button"
+        className="button secondary add-product-button"
+        onClick={() => void abrirFormularioNuevo(indice)}
+      >
+        + Agregar como producto nuevo
+      </button>
+    )
+  }
+
   // Cartel provisional: el precio de la base de datos ya se conoce al elegir
   // el producto; el de la factura llega cuando termina el cálculo.
   function renderCartelCalculando(resultado: ResultadoCoincidencia): JSX.Element {
@@ -909,6 +1025,8 @@ function App(): JSX.Element {
                           </p>
                         )}
 
+                        {renderProductoNuevo(resultado, index)}
+
                         {resultado.productoSeleccionadoId && (
                           seleccionandoCandidato === index ? (
                             renderCartelCalculando(resultado)
@@ -978,6 +1096,8 @@ function App(): JSX.Element {
                 />
               </div>
             )}
+
+            {renderProductoNuevo(resultado, index)}
 
             {resultado.productoSeleccionadoId ? (
               seleccionandoCandidato === index ? (

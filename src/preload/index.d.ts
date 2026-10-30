@@ -122,6 +122,16 @@ export interface AppAPI {
     precioCompra: number
   ) => Promise<{ ok: boolean }>
 
+  crearProducto: (
+    nombre: string,
+    precioCompra: number
+  ) => Promise<{ id: string; nombre: string; precio_compra: number }>
+
+  precioLineaFactura: (
+    respuestaGemini: string,
+    indice: number
+  ) => Promise<ComparacionPrecio>
+
   seleccionarYLeerXML: () => Promise<ArchivoXML | null>
 }
 
