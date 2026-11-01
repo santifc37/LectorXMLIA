@@ -1,0 +1,74 @@
+/* Revisión final, importación e historial. Misma paleta que precios.css. */
+
+.import-panel {
+  margin-top: 18px;
+}
+
+.import-hint {
+  margin: 12px 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.import-table td small.import-sub {
+  display: block;
+  margin-top: 2px;
+  color: #667085;
+  font-size: 11px;
+}
+
+.import-table td small.import-warning {
+  color: #b54708;
+}
+
+.import-table td input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.import-table td input[type='checkbox']:disabled {
+  cursor: not-allowed;
+}
+
+.import-row-off td {
+  opacity: 0.55;
+}
+
+.import-blocked {
+  margin-top: 12px;
+  padding: 10px 14px;
+  color: #b42318;
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.import-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.import-success {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.import-resume {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.import-resume-actions {
+  display: flex;
+  gap: 10px;
+}

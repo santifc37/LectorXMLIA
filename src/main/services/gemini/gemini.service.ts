@@ -1,5 +1,6 @@
 import { GoogleGenAI, ThinkingLevel } from '@google/genai'
 import { config } from '../../config'
+import { ErrorRespuestaGemini, clasificarError, mensajeFinal } from './gemini.errores'
 
 const API_KEY = config.geminiApiKey
 const MODEL = config.geminiModel
@@ -40,13 +41,6 @@ export interface FacturaExtraida {
 
 function esperar(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function esErrorTemporal(error: unknown): boolean {
-  const mensaje =
-    error instanceof Error ? error.message : String(error)
-
-  return /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|500|502|504/i.test(mensaje)
 }
 
 export async function procesarXMLConGemini(
@@ -139,46 +133,48 @@ XML DE LA FACTURA:
 ${xml}
 `
 
-  let resultado
+  const MAX_INTENTOS = 4
+  let ultimoError: unknown
 
-for (let intento = 1; intento <= 3; intento++) {
-  try {
-    resultado = await ai.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.MEDIUM
+  for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+    try {
+      const resultado = await ai.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.MEDIUM
+          }
         }
+      })
+
+      return {
+        modelo: MODEL,
+        respuesta: JSON.stringify(validarRespuesta(resultado.text), null, 2)
       }
-    })
+    } catch (error) {
+      ultimoError = error
 
-    break
-  } catch (error) {
-    if (!esErrorTemporal(error) || intento === 3) {
-      throw new Error(
-        intento === 3 && esErrorTemporal(error)
-          ? 'Gemini sigue experimentando alta demanda. Intenta nuevamente dentro de unos minutos.'
-          : error instanceof Error
-            ? error.message
-            : 'Error al comunicarse con Gemini.',
-        { cause: error }
-      )
+      const { tipo, esperaMs } = clasificarError(error)
+
+      // Sin cuota, o ante un error desconocido, reintentar no sirve. Una
+      // respuesta inválida se repite una sola vez.
+      if (tipo === 'cuota' || tipo === 'otro') break
+      if (tipo === 'respuesta' && intento >= 2) break
+      if (intento === MAX_INTENTOS) break
+
+      // Espera progresiva (3 s, 6 s, 9 s) o la que indique Gemini, hasta 60 s.
+      await esperar(Math.min(esperaMs ?? intento * 3000, 60000))
     }
-
-    await esperar(intento * 3000)
   }
+
+  throw new Error(mensajeFinal(ultimoError), { cause: ultimoError })
 }
 
-if (!resultado) {
-  throw new Error('No se pudo obtener una respuesta de Gemini.')
-}
-
-  const texto = resultado.text
-
+function validarRespuesta(texto: string | undefined): FacturaExtraida {
   if (!texto) {
-    throw new Error('Gemini no devolvió información.')
+    throw new ErrorRespuestaGemini('Gemini no devolvió información.')
   }
 
   let datos: FacturaExtraida
@@ -186,7 +182,7 @@ if (!resultado) {
   try {
     datos = JSON.parse(texto) as FacturaExtraida
   } catch {
-    throw new Error('Gemini devolvió una respuesta que no es JSON válido.')
+    throw new ErrorRespuestaGemini('Gemini devolvió una respuesta que no es JSON válido.')
   }
 
   if (
@@ -194,11 +190,8 @@ if (!resultado) {
     !Array.isArray(datos.productos) ||
     !Array.isArray(datos.observaciones)
   ) {
-    throw new Error('La estructura de datos devuelta por Gemini no es válida.')
+    throw new ErrorRespuestaGemini('La estructura de datos devuelta por Gemini no es válida.')
   }
 
-  return {
-    modelo: MODEL,
-    respuesta: JSON.stringify(datos, null, 2)
-  }
+  return datos
 }

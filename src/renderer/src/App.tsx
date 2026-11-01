@@ -4,7 +4,14 @@ import './assets/main.css'
 import './assets/precios.css'
 import './assets/candidatos.css'
 import { ListaCandidatos } from './components/ListaCandidatos'
-import { FormularioProductoNuevo } from './components/FormularioProductoNuevo'
+import { ConfirmarImportacion } from './components/ConfirmarImportacion'
+import { HistorialFacturas } from './components/HistorialFacturas'
+import {
+  estaIncluida,
+  posicionesConPrecioAutorizado,
+  posicionesIncluidas
+} from './components/importacion.helpers'
+import type { FilaImportacion } from './components/importacion.helpers'
 
 interface AppInfo {
   name: string
@@ -91,7 +98,10 @@ interface ComparacionPrecio {
   alertas: string[]
 }
 
-type Seccion = 'inicio' | 'xml' | 'catalogo'
+type Seccion = 'inicio' | 'xml' | 'catalogo' | 'historial'
+
+type ResultadoImportacion = Awaited<ReturnType<typeof window.api.confirmarImportacion>>
+type ProgresoGuardado = NonNullable<Awaited<ReturnType<typeof window.api.leerProgreso>>>
 
 function App(): JSX.Element {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
@@ -126,13 +136,13 @@ function App(): JSX.Element {
     useState<(ComparacionPrecio | null)[]>([])
   const [preciosAutorizados, setPreciosAutorizados] =
     useState<Record<number, boolean>>({})
-  const [actualizandoPrecio, setActualizandoPrecio] =
-    useState<number | null>(null)
 
-  // Alta manual de un producto que no existe en el inventario.
-  const [formularioNuevo, setFormularioNuevo] =
-    useState<{ indice: number; precio: number | null } | null>(null)
-  const [creandoProducto, setCreandoProducto] = useState(false)
+  // Revisión final e importación.
+  const [incluidas, setIncluidas] = useState<Record<number, boolean>>({})
+  const [importando, setImportando] = useState(false)
+  const [resultadoImportacion, setResultadoImportacion] = useState<ResultadoImportacion | null>(null)
+  const [facturaDuplicada, setFacturaDuplicada] = useState<{ importadaEn?: string } | null>(null)
+  const [progresoGuardado, setProgresoGuardado] = useState<ProgresoGuardado | null>(null)
 
   useEffect(() => {
     window.api.getAppInfo().then(setAppInfo).catch(() => {})
@@ -153,6 +163,41 @@ function App(): JSX.Element {
       })
       .catch(() => setAutenticado(false))
   }, [])
+
+  // Guarda el avance de la factura para poder continuar si se cierra la aplicación
+  // o si Gemini deja de responder (README, sección 7).
+  useEffect(() => {
+    if (
+      !archivoXML?.contenidoFactura ||
+      !respuestaGemini ||
+      resultadoImportacion ||
+      facturaDuplicada
+    ) {
+      return undefined
+    }
+
+    const temporizador = setTimeout(() => {
+      void window.api
+        .guardarProgreso(archivoXML.contenidoFactura, {
+          archivo: archivoXML.nombre,
+          respuestaGemini,
+          coincidencias: resultadosCoincidencia,
+          incluidas,
+          preciosAutorizados
+        })
+        .catch(() => undefined)
+    }, 500)
+
+    return () => clearTimeout(temporizador)
+  }, [
+    archivoXML,
+    respuestaGemini,
+    resultadosCoincidencia,
+    incluidas,
+    preciosAutorizados,
+    resultadoImportacion,
+    facturaDuplicada
+  ])
 
   async function iniciarSesion(): Promise<void> {
     if (!contrasena) {
@@ -194,6 +239,10 @@ function App(): JSX.Element {
 
       setAutenticado(false)
       setArchivoXML(null)
+      setIncluidas({})
+      setResultadoImportacion(null)
+      setFacturaDuplicada(null)
+      setProgresoGuardado(null)
       setRespuestaGemini(null)
       setResultadosCoincidencia([])
       setComparacionesPrecio([])
@@ -255,11 +304,15 @@ function App(): JSX.Element {
       setComparacionesPrecio([])
       setPreciosAutorizados({})
 
+      setIncluidas({})
+      setResultadoImportacion(null)
+
       const resultado = await window.api.seleccionarYLeerXML()
 
       if (resultado) {
         setArchivoXML(resultado)
         setSeccion('xml')
+        await revisarArchivo(resultado)
       }
     } catch (err) {
       setError(
@@ -268,6 +321,93 @@ function App(): JSX.Element {
           : 'No se pudo leer el archivo XML.'
       )
     }
+  }
+
+  // Al abrir un XML: avisa si la factura ya fue importada (antes de gastar una
+  // consulta a Gemini) y si hay un avance guardado para continuar.
+  async function revisarArchivo(archivo: ArchivoXML): Promise<void> {
+    setFacturaDuplicada(null)
+    setProgresoGuardado(null)
+
+    const resumen = archivo.resumen
+
+    if (!archivo.valido || !resumen) return
+
+    if (resumen.proveedorNit && resumen.numero) {
+      try {
+        const consulta = await window.api.facturaYaImportada(resumen.proveedorNit, resumen.numero)
+
+        if (consulta.existe) {
+          setFacturaDuplicada({ importadaEn: consulta.importada_en })
+          return
+        }
+      } catch {
+        // Sin conexión con la API: se vuelve a comprobar al confirmar la importación.
+      }
+    }
+
+    const progreso = await window.api.leerProgreso(archivo.contenidoFactura).catch(() => null)
+
+    if (progreso) setProgresoGuardado(progreso)
+  }
+
+  // Retoma una factura sin repetir la consulta a Gemini. Todo se calcula primero
+  // y se aplica junto, para no sobrescribir el avance guardado con datos vacíos.
+  async function restaurarProgreso(): Promise<void> {
+    if (!progresoGuardado) return
+
+    const guardado = progresoGuardado
+
+    try {
+      setError('')
+
+      let catalogo = productos
+
+      if (catalogo.length === 0) {
+        catalogo = await cargarCatalogo()
+      }
+
+      const base =
+        guardado.coincidencias.length > 0
+          ? guardado.coincidencias
+          : await window.api.compararFacturaConCatalogo(guardado.respuestaGemini.respuesta, catalogo)
+
+      // Los precios del inventario pueden haber cambiado desde que se guardó.
+      const precios = new Map(catalogo.map((producto) => [producto.id, producto.precio_compra]))
+
+      const coincidencias = base.map((resultado) => ({
+        ...resultado,
+        candidatos: resultado.candidatos.map((candidato) =>
+          precios.has(candidato.id)
+            ? { ...candidato, precio: precios.get(candidato.id) ?? null }
+            : candidato
+        )
+      }))
+
+      const comparaciones = await window.api.compararPrecios(
+        guardado.respuestaGemini.respuesta,
+        coincidencias
+      )
+
+      setRespuestaGemini(guardado.respuestaGemini)
+      setResultadosCoincidencia(coincidencias)
+      setComparacionesPrecio(comparaciones)
+      setIncluidas(guardado.incluidas)
+      setPreciosAutorizados(guardado.preciosAutorizados)
+      setProgresoGuardado(null)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'No se pudo recuperar el avance de la factura.'
+      )
+    }
+  }
+
+  async function descartarProgreso(): Promise<void> {
+    if (archivoXML) {
+      await window.api.borrarProgreso(archivoXML.contenidoFactura).catch(() => undefined)
+    }
+
+    setProgresoGuardado(null)
   }
 
   async function enviarAGemini(): Promise<void> {
@@ -281,6 +421,11 @@ function App(): JSX.Element {
       return
     }
 
+    if (facturaDuplicada) {
+      setError('Esta factura ya fue importada. No es necesario procesarla de nuevo.')
+      return
+    }
+
     try {
       setProcesandoGemini(true)
       setComparandoProductos(false)
@@ -289,6 +434,9 @@ function App(): JSX.Element {
       setResultadosCoincidencia([])
       setComparacionesPrecio([])
       setPreciosAutorizados({})
+      setIncluidas({})
+      setResultadoImportacion(null)
+      setProgresoGuardado(null)
 
       // 1. Extraer los datos de la factura con Gemini.
       const resultado: ResultadoGemini =
@@ -430,6 +578,13 @@ function App(): JSX.Element {
       return nuevos
     })
 
+    // Al cambiar de producto, la línea vuelve a la regla por defecto.
+    setIncluidas(actual => {
+      const nuevos = { ...actual }
+      delete nuevos[indice]
+      return nuevos
+    })
+
     try {
       setSeleccionandoCandidato(indice)
       setError('')
@@ -507,6 +662,53 @@ function App(): JSX.Element {
           Proveedor: {resumen.proveedorNombre ?? 'Sin nombre'} · NIT{' '}
           {resumen.proveedorNit ?? 'no identificado'}
         </p>
+
+        {facturaDuplicada && (
+          <div className="import-blocked">
+            Esta factura ya fue importada
+            {facturaDuplicada.importadaEn
+              ? ` el ${new Date(facturaDuplicada.importadaEn).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })}`
+              : ''}
+            . No es necesario procesarla de nuevo.
+          </div>
+        )}
+
+        {archivoXML?.valido && (!resumen.proveedorNit || !resumen.numero) && (
+          <div className="import-blocked">
+            No se identificó el NIT del proveedor o el número de la factura: no se podrá importar.
+          </div>
+        )}
+
+        {progresoGuardado && !respuestaGemini && (
+          <div className="import-resume">
+            <span>
+              Hay un avance guardado de esta factura (
+              {new Date(progresoGuardado.guardadoEn).toLocaleString('es-CO', {
+                dateStyle: 'medium',
+                timeStyle: 'short'
+              })}
+              ). Puedes continuar sin volver a consultar a Gemini.
+            </span>
+
+            <div className="import-resume-actions">
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => void restaurarProgreso()}
+              >
+                Continuar donde quedé
+              </button>
+
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => void descartarProgreso()}
+              >
+                Descartar y empezar de nuevo
+              </button>
+            </div>
+          </div>
+        )}
       </>
     )
   }
@@ -568,177 +770,158 @@ function App(): JSX.Element {
     }
   }
 
-  // Cambia en la base de datos el precio de compra por el de la factura.
-  // Solo ocurre cuando el usuario pulsa el botón y lo confirma.
-  async function aplicarPrecioFactura(indice: number): Promise<void> {
-    const comparacion = comparacionesPrecio[indice]
-    const nuevoPrecio = comparacion?.precioFactura ?? null
+  // El usuario autoriza (o quita) el cambio del precio de compra de una línea.
+  // No se envía nada a la API hasta confirmar la importación.
+  function alternarPrecioAutorizado(indice: number): void {
+    setPreciosAutorizados((actual) => ({ ...actual, [indice]: !actual[indice] }))
+  }
 
-    if (!comparacion || nuevoPrecio === null || !respuestaGemini) return
+  function alternarIncluida(indice: number): void {
+    const fila = construirFilas()[indice]
 
-    const anterior =
-      comparacion.precioActual !== null
-        ? formatearPesos(comparacion.precioActual)
-        : 'sin precio'
+    if (!fila) return
+
+    setIncluidas((actual) => ({ ...actual, [indice]: !estaIncluida(fila, actual) }))
+  }
+
+  function aNumeroONull(valor: unknown): number | null {
+    const numero = typeof valor === 'string' && valor.trim() === '' ? NaN : Number(valor)
+
+    return valor !== null && valor !== undefined && Number.isFinite(numero) ? numero : null
+  }
+
+  // Una fila por línea de la factura, para la revisión final.
+  function construirFilas(): FilaImportacion[] {
+    let lineas: { cantidad?: unknown; unidad?: string | null }[] = []
+
+    try {
+      const factura = JSON.parse(respuestaGemini?.respuesta ?? '{}')
+      lineas = Array.isArray(factura.productos) ? factura.productos : []
+    } catch {
+      lineas = []
+    }
+
+    return resultadosCoincidencia.map((resultado, indice) => {
+      const comparacion = comparacionesPrecio[indice] ?? null
+
+      const candidato = resultado.candidatos.find(
+        (item) => item.id === resultado.productoSeleccionadoId
+      )
+
+      return {
+        indice,
+        descripcion: resultado.productoFactura,
+        estadoCoincidencia: resultado.estado,
+        productoNombre: candidato?.nombre ?? null,
+        cantidad: comparacion?.cantidad ?? aNumeroONull(lineas[indice]?.cantidad),
+        unidad: comparacion?.unidad ?? lineas[indice]?.unidad ?? null,
+        precioActual: comparacion?.precioActual ?? null,
+        precioFactura: comparacion?.precioFactura ?? null,
+        estadoPrecio: comparacion?.estado ?? null,
+        variacionTexto: comparacion ? formatearVariacion(comparacion) : '—'
+      }
+    })
+  }
+
+  // Motivo por el que no se puede importar esta factura (o null si se puede).
+  function motivoBloqueo(): string | null {
+    const resumen = archivoXML?.resumen
+
+    if (facturaDuplicada) return 'Esta factura ya fue importada.'
+
+    if (!resumen?.proveedorNit || !resumen.numero) {
+      return 'No se identificó el NIT del proveedor o el número de la factura en el XML.'
+    }
+
+    return null
+  }
+
+  async function confirmarImportacion(): Promise<void> {
+    if (!respuestaGemini || !archivoXML) return
+
+    const filas = construirFilas()
+    const lineasIncluidas = posicionesIncluidas(filas, incluidas)
+    const lineasConPrecio = posicionesConPrecioAutorizado(filas, incluidas, preciosAutorizados)
+
+    if (lineasIncluidas.length === 0) return
 
     const confirmado = window.confirm(
-      `¿Cambiar el precio de compra de "${comparacion.productoNombre}"?\n\n` +
-        `Actual: ${anterior}\nNuevo (factura): ${formatearPesos(nuevoPrecio)}`
+      `¿Importar ${lineasIncluidas.length} línea(s) de la factura ${archivoXML.resumen?.numero ?? ''} al inventario?\n\n` +
+        `Se registrarán las entradas de inventario y se actualizará el precio de compra de ${lineasConPrecio.length} producto(s).\n` +
+        'Esta acción no se puede deshacer desde la aplicación.'
     )
 
     if (!confirmado) return
 
     try {
-      setActualizandoPrecio(indice)
+      setImportando(true)
       setError('')
 
-      await window.api.actualizarPrecioCompra(comparacion.productoId, nuevoPrecio)
+      const resultado = await window.api.confirmarImportacion({
+        respuestaGemini: respuestaGemini.respuesta,
+        resumen: archivoXML.resumen,
+        coincidencias: resultadosCoincidencia,
+        incluidas: lineasIncluidas,
+        preciosAutorizados: lineasConPrecio
+      })
 
-      setProductos((actual) =>
-        actual.map((producto) =>
-          producto.id === comparacion.productoId
-            ? { ...producto, precio_compra: nuevoPrecio }
-            : producto
-        )
-      )
+      if (resultado.duplicada) {
+        setFacturaDuplicada({ importadaEn: resultado.importada_en })
+        setError('Esta factura ya había sido importada: no se registró nada nuevo.')
+      } else {
+        setResultadoImportacion(resultado)
+        // Los precios cambiaron: se refresca el catálogo en segundo plano.
+        void cargarCatalogo().catch(() => undefined)
+      }
 
-      const resultadosActualizados = resultadosCoincidencia.map((resultado) => ({
-        ...resultado,
-        candidatos: resultado.candidatos.map((candidato) =>
-          candidato.id === comparacion.productoId
-            ? { ...candidato, precio: nuevoPrecio }
-            : candidato
-        )
-      }))
-
-      setResultadosCoincidencia(resultadosActualizados)
-
-      setPreciosAutorizados((actual) => ({ ...actual, [indice]: true }))
-
-      setComparacionesPrecio(
-        await window.api.compararPrecios(
-          respuestaGemini.respuesta,
-          resultadosActualizados
-        )
-      )
+      await window.api.borrarProgreso(archivoXML.contenidoFactura).catch(() => undefined)
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'No se pudo actualizar el precio de compra.'
+          : 'No se pudo importar la factura. Puedes intentarlo de nuevo: no se duplicará.'
       )
     } finally {
-      setActualizandoPrecio(null)
+      setImportando(false)
     }
   }
 
-  async function abrirFormularioNuevo(indice: number): Promise<void> {
-    if (!respuestaGemini) return
-
-    let precio: number | null = null
-
-    try {
-      setError('')
-      const linea = await window.api.precioLineaFactura(respuestaGemini.respuesta, indice)
-      precio = linea.precioFactura
-    } catch {
-      // Sin precio sugerido: el usuario lo escribe a mano.
-    }
-
-    setFormularioNuevo({ indice, precio })
-  }
-
-  async function crearProductoNuevo(
-    indice: number,
-    nombre: string,
-    precioCompra: number
-  ): Promise<void> {
-    if (!respuestaGemini) return
-
-    const confirmado = window.confirm(
-      `¿Crear el producto "${nombre}" en el inventario con precio de compra ${formatearPesos(precioCompra)}?`
-    )
-
-    if (!confirmado) return
-
-    try {
-      setCreandoProducto(true)
-      setError('')
-
-      const creado = await window.api.crearProducto(nombre, precioCompra)
-
-      // Se refresca el catálogo para que el producto nuevo quede disponible.
-      await cargarCatalogo().catch(() => undefined)
-
-      const resultadosActualizados = resultadosCoincidencia.map((resultado, posicion) =>
-        posicion === indice
-          ? {
-              ...resultado,
-              productoSeleccionadoId: creado.id,
-              candidatos: [
-                {
-                  id: creado.id,
-                  nombre: creado.nombre,
-                  precio: creado.precio_compra,
-                  puntuacion: 100,
-                  motivo: 'Producto creado manualmente.',
-                  codigo: null
-                },
-                ...resultado.candidatos
-              ]
-            }
-          : resultado
-      )
-
-      setResultadosCoincidencia(resultadosActualizados)
-      setFormularioNuevo(null)
-
-      setComparacionesPrecio(
-        await window.api.compararPrecios(
-          respuestaGemini.respuesta,
-          resultadosActualizados
-        )
-      )
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'No se pudo crear el producto.'
-      )
-    } finally {
-      setCreandoProducto(false)
-    }
-  }
-
-  // Botón o formulario para agregar el producto cuando no existe en el inventario.
-  function renderProductoNuevo(
-    resultado: ResultadoCoincidencia,
-    indice: number
-  ): JSX.Element | null {
-    if (resultado.productoSeleccionadoId) return null
-
-    if (formularioNuevo?.indice === indice) {
+  // Revisión final y confirmación (o el resultado, una vez importada).
+  function renderConfirmacion(): JSX.Element | null {
+    if (resultadoImportacion) {
       return (
-        <FormularioProductoNuevo
-          nombreInicial={resultado.productoFactura}
-          precioInicial={formularioNuevo.precio}
-          guardando={creandoProducto}
-          onGuardar={(nombre, precio) => void crearProductoNuevo(indice, nombre, precio)}
-          onCancelar={() => setFormularioNuevo(null)}
-        />
+        <article className="panel import-panel">
+          <div className="import-success">
+            <span className="status-pill success">Factura importada</span>
+
+            <strong>
+              {resultadoImportacion.lineas_importadas ?? 0} líneas registradas en el inventario ·{' '}
+              {resultadoImportacion.precios_actualizados ?? 0} precios actualizados
+            </strong>
+
+            <small className="muted">Puedes consultarla en el historial de facturas.</small>
+
+            <button type="button" className="button secondary" onClick={() => setSeccion('historial')}>
+              Ver historial
+            </button>
+          </div>
+        </article>
       )
     }
 
-    if (resultado.candidatos.length > 0 && resultado.estado !== 'sin_coincidencia') {
-      return null
-    }
+    if (resultadosCoincidencia.length === 0) return null
 
     return (
-      <button
-        type="button"
-        className="button secondary add-product-button"
-        onClick={() => void abrirFormularioNuevo(indice)}
-      >
-        + Agregar como producto nuevo
-      </button>
+      <ConfirmarImportacion
+        filas={construirFilas()}
+        incluidas={incluidas}
+        preciosAutorizados={preciosAutorizados}
+        importando={importando}
+        bloqueo={motivoBloqueo()}
+        onAlternarIncluida={alternarIncluida}
+        onAlternarPrecio={alternarPrecioAutorizado}
+        onConfirmar={() => void confirmarImportacion()}
+      />
     )
   }
 
@@ -862,23 +1045,15 @@ function App(): JSX.Element {
           </ul>
         )}
 
-        {preciosAutorizados[indice] ? (
-          <div className="price-applied">
-            ✓ Precio de compra actualizado a{' '}
-            {comparacion.precioActual !== null
-              ? formatearPesos(comparacion.precioActual)
-              : 'el de la factura'}
-          </div>
-        ) : puedeAutorizar && nuevoPrecio !== null ? (
+        {puedeAutorizar && nuevoPrecio !== null ? (
           <button
             type="button"
-            className="button primary price-change-button"
-            disabled={actualizandoPrecio === indice}
-            onClick={() => void aplicarPrecioFactura(indice)}
+            className={`button ${preciosAutorizados[indice] ? 'secondary' : 'primary'} price-change-button`}
+            onClick={() => alternarPrecioAutorizado(indice)}
           >
-            {actualizandoPrecio === indice
-              ? 'Actualizando precio...'
-              : `${comparacion.estado === 'sin_referencia' ? 'Establecer' : 'Cambiar'} precio de compra por el de la factura (${formatearPesos(nuevoPrecio)})`}
+            {preciosAutorizados[indice]
+              ? `✓ El precio cambiará a ${formatearPesos(nuevoPrecio)} al confirmar (quitar)`
+              : `Autorizar cambio de precio de compra a ${formatearPesos(nuevoPrecio)}`}
           </button>
         ) : comparacion.provisional ? (
           <small className="muted">
@@ -928,6 +1103,7 @@ function App(): JSX.Element {
     const preciosAutorizadosTotal = Object.values(preciosAutorizados).filter(Boolean).length
 
     return (
+      <>
       <article className="panel matching-panel">
         <div className="panel-heading">
           <div>
@@ -968,7 +1144,7 @@ function App(): JSX.Element {
 
           <span>
             <strong>{preciosAutorizadosTotal}</strong>
-            Precios actualizados
+            Precios autorizados
           </span>
         </div>
 
@@ -1025,7 +1201,7 @@ function App(): JSX.Element {
                           </p>
                         )}
 
-                        {renderProductoNuevo(resultado, index)}
+                        
 
                         {resultado.productoSeleccionadoId && (
                           seleccionandoCandidato === index ? (
@@ -1097,7 +1273,7 @@ function App(): JSX.Element {
               </div>
             )}
 
-            {renderProductoNuevo(resultado, index)}
+            
 
             {resultado.productoSeleccionadoId ? (
               seleccionandoCandidato === index ? (
@@ -1115,6 +1291,9 @@ function App(): JSX.Element {
           ))}
         </ol>
       </article>
+
+      {renderConfirmacion()}
+      </>
     )
   }
 
@@ -1208,6 +1387,13 @@ function App(): JSX.Element {
             onClick={() => setSeccion('catalogo')}
           >
             <span>▦</span> Catálogo
+          </button>
+
+          <button
+            className={`nav-button ${seccion === 'historial' ? 'active' : ''}`}
+            onClick={() => setSeccion('historial')}
+          >
+            <span>☰</span> Historial
           </button>
 
           <div className="sidebar-bottom">
@@ -1417,6 +1603,20 @@ function App(): JSX.Element {
                   </div>
                 )}
               </article>
+            </div>
+          )}
+
+          {seccion === 'historial' && (
+            <div className="page-container">
+              <div className="page-heading">
+                <div>
+                  <span className="eyebrow">COMPRAS</span>
+                  <h2>Historial de facturas</h2>
+                  <p>Facturas importadas, con sus precios y las decisiones tomadas.</p>
+                </div>
+              </div>
+
+              <HistorialFacturas />
             </div>
           )}
 

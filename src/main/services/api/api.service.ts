@@ -1,4 +1,5 @@
 import { config } from '../../config'
+import type { SolicitudImportacion } from '../importacion/importacion.utils'
 
 let cookieSesion: string | null = null
 
@@ -100,9 +101,8 @@ export async function obtenerProductosAPI(): Promise<unknown> {
   return await respuesta.json()
 }
 
-// Rutas de escritura de la API de Ferretería. Si tu API usa otras rutas o
-// métodos, solo hay que cambiarlas aquí.
-const RUTA_PRODUCTOS = '/productos'
+// Rutas de la API de Ferretería para las facturas de compra.
+const RUTA_FACTURAS = '/facturas-compra'
 
 async function leerErrorAPI(respuesta: Response, mensaje: string): Promise<Error> {
   const datos = await respuesta.json().catch(() => ({}))
@@ -112,54 +112,96 @@ async function leerErrorAPI(respuesta: Response, mensaje: string): Promise<Error
   return new Error(detalle || `${mensaje} (HTTP ${respuesta.status}).`)
 }
 
-/** Cambia el precio de compra de un producto existente (acción del usuario). */
-export async function actualizarPrecioCompraAPI(
-  productoId: string,
-  precioCompra: number
-): Promise<unknown> {
-  const respuesta = await solicitar(`${RUTA_PRODUCTOS}/${encodeURIComponent(productoId)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ precio_compra: precioCompra })
-  })
-
-  if (!respuesta.ok) {
-    throw await leerErrorAPI(respuesta, 'No se pudo actualizar el precio de compra')
-  }
-
-  return await respuesta.json().catch(() => ({}))
+export interface RespuestaImportacionAPI {
+  /** true si la factura ya había sido importada: no se registró nada nuevo. */
+  duplicada: boolean
+  factura_id: string
+  ajuste_entrada_id?: string
+  lineas_importadas?: number
+  precios_actualizados?: number
+  importada_en?: string
 }
 
-export interface ProductoCreado {
-  id: string
-  nombre: string
-  precio_compra: number
+export interface FacturaYaImportada {
+  existe: boolean
+  factura_id?: string
+  numero?: string
+  proveedor_nombre?: string | null
+  importada_en?: string
 }
 
-/** Crea un producto nuevo (acción manual del usuario, nunca automática). */
-export async function crearProductoAPI(
-  nombre: string,
-  precioCompra: number
-): Promise<ProductoCreado> {
-  const respuesta = await solicitar(RUTA_PRODUCTOS, {
+/**
+ * Importa una factura confirmada por el usuario. La API la registra en una sola
+ * operación atómica e idempotente: repetir la solicitud no duplica entradas
+ * ni cambios de precio (responde 409 con duplicada = true).
+ */
+export async function importarFacturaAPI(
+  solicitud: SolicitudImportacion
+): Promise<RespuestaImportacionAPI> {
+  const respuesta = await solicitar(RUTA_FACTURAS, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nombre, precio_compra: precioCompra })
+    body: JSON.stringify(solicitud)
   })
 
-  if (!respuesta.ok) {
-    throw await leerErrorAPI(respuesta, 'No se pudo crear el producto')
-  }
-
   const datos = (await respuesta.json().catch(() => ({}))) as Record<string, unknown>
-  const anidado = [datos.producto, datos.data].find(
-    (valor): valor is Record<string, unknown> => Boolean(valor) && typeof valor === 'object'
-  )
-  const id = (anidado ?? datos).id
 
-  if (typeof id !== 'string' && typeof id !== 'number') {
-    throw new Error('El producto se creó, pero la API no devolvió su ID. Actualiza el catálogo.')
+  // Una factura repetida no es un error: simplemente no se vuelve a registrar.
+  if (respuesta.status === 409 && datos.duplicada === true) {
+    return {
+      duplicada: true,
+      factura_id: String(datos.factura_id ?? ''),
+      importada_en: typeof datos.importada_en === 'string' ? datos.importada_en : undefined
+    }
   }
 
-  return { id: String(id), nombre, precio_compra: precioCompra }
+  if (!respuesta.ok) {
+    throw new Error(
+      typeof datos.error === 'string' && datos.error
+        ? datos.error
+        : `No se pudo importar la factura (HTTP ${respuesta.status}).`
+    )
+  }
+
+  return {
+    duplicada: false,
+    factura_id: String(datos.factura_id ?? ''),
+    ajuste_entrada_id: typeof datos.ajuste_entrada_id === 'string' ? datos.ajuste_entrada_id : undefined,
+    lineas_importadas: Number(datos.lineas_importadas ?? 0),
+    precios_actualizados: Number(datos.precios_actualizados ?? 0)
+  }
+}
+
+/** ¿Esta factura (proveedor + número) ya fue importada? */
+export async function buscarFacturaAPI(nit: string, numero: string): Promise<FacturaYaImportada> {
+  const consulta = `nit=${encodeURIComponent(nit)}&numero=${encodeURIComponent(numero)}`
+  const respuesta = await solicitar(`${RUTA_FACTURAS}/existe?${consulta}`)
+
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, 'No se pudo consultar la factura')
+  }
+
+  return (await respuesta.json()) as FacturaYaImportada
+}
+
+/** Historial de facturas importadas. */
+export async function listarFacturasAPI(): Promise<{ facturas: unknown[]; total: number }> {
+  const respuesta = await solicitar(RUTA_FACTURAS)
+
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, 'No se pudo consultar el historial de facturas')
+  }
+
+  return (await respuesta.json()) as { facturas: unknown[]; total: number }
+}
+
+/** Detalle de una factura importada, con sus líneas y decisiones de precio. */
+export async function obtenerFacturaAPI(id: string): Promise<unknown> {
+  const respuesta = await solicitar(`${RUTA_FACTURAS}/${encodeURIComponent(id)}`)
+
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, 'No se pudo consultar la factura')
+  }
+
+  return await respuesta.json()
 }

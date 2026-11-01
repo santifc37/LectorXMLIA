@@ -8,23 +8,28 @@ import type {
   ProductoCatalogo,
   ResultadoCoincidencia
 } from './services/matching/matching.service'
-import { compararPrecios, compararPrecio } from './services/precios/precios.service'
+import { compararPrecios } from './services/precios/precios.service'
 import { config } from './config'
 
 import {
   iniciarSesion,
   cerrarSesion,
   comprobarSesion,
-  actualizarPrecioCompraAPI,
-  crearProductoAPI
+  buscarFacturaAPI,
+  listarFacturasAPI,
+  obtenerFacturaAPI
 } from './services/api/api.service'
 
-import {
-  actualizarCatalogo,
-  actualizarPrecioLocal
-} from './services/catalogo/catalogo.service'
+import { actualizarCatalogo } from './services/catalogo/catalogo.service'
 
 import { leerArchivoXML } from './services/xml/xml.service'
+import { importarFactura } from './services/importacion/importacion.service'
+import type { EntradaImportacion } from './services/importacion/importacion.service'
+import {
+  borrarProgreso,
+  guardarProgreso,
+  leerProgreso
+} from './services/progreso/progreso.service'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -89,65 +94,52 @@ app.whenReady().then(() => {
     return await actualizarCatalogo()
   })
 
-  // Cambio de precio de compra autorizado por el usuario: se envía a la API
-  // y, si responde bien, se refleja también en la copia local del catálogo.
+  // Importación confirmada por el usuario: valida, recalcula los precios y envía
+  // todo a la API en una sola operación atómica e idempotente.
+  ipcMain.handle('importacion:confirmar', async (_, entrada: EntradaImportacion) => {
+    return await importarFactura(entrada)
+  })
+
+  // ¿La factura ya fue importada? Se consulta antes de gastar una llamada a Gemini.
+  ipcMain.handle('importacion:existe', async (_, nit: string, numero: string) => {
+    if (typeof nit !== 'string' || !nit.trim() || typeof numero !== 'string' || !numero.trim()) {
+      throw new Error('El NIT del proveedor y el número de la factura son obligatorios.')
+    }
+
+    return await buscarFacturaAPI(nit, numero)
+  })
+
+  // Historial de facturas importadas.
+  ipcMain.handle('facturas:listar', async () => {
+    return await listarFacturasAPI()
+  })
+
+  ipcMain.handle('facturas:obtener', async (_, id: string) => {
+    if (typeof id !== 'string' || !id.trim()) {
+      throw new Error('Factura no válida.')
+    }
+
+    return await obtenerFacturaAPI(id)
+  })
+
+  // Progreso local de cada factura, para continuar si se cierra la aplicación.
   ipcMain.handle(
-    'productos:actualizar-precio',
-    async (_, productoId: string, precioCompra: number) => {
-      if (typeof productoId !== 'string' || !productoId.trim()) {
-        throw new Error('Producto no válido.')
+    'progreso:guardar',
+    async (_, contenidoFactura: string, datos: Parameters<typeof guardarProgreso>[1]) => {
+      if (!datos || typeof datos !== 'object') {
+        throw new Error('Progreso no válido.')
       }
 
-      if (typeof precioCompra !== 'number' || !Number.isFinite(precioCompra) || precioCompra <= 0) {
-        throw new Error('El precio de compra debe ser un número mayor que cero.')
-      }
-
-      await actualizarPrecioCompraAPI(productoId, precioCompra)
-      await actualizarPrecioLocal(productoId, precioCompra)
-
-      return { ok: true }
+      await guardarProgreso(contenidoFactura, datos)
     }
   )
 
-  // Alta manual de un producto que no existe en el inventario.
-  ipcMain.handle(
-    'productos:crear',
-    async (_, nombre: string, precioCompra: number) => {
-      const nombreLimpio = typeof nombre === 'string' ? nombre.trim() : ''
+  ipcMain.handle('progreso:leer', async (_, contenidoFactura: string) => {
+    return await leerProgreso(contenidoFactura)
+  })
 
-      if (!nombreLimpio) {
-        throw new Error('El nombre del producto es obligatorio.')
-      }
-
-      if (typeof precioCompra !== 'number' || !Number.isFinite(precioCompra) || precioCompra < 0) {
-        throw new Error('El precio de compra no es válido.')
-      }
-
-      return await crearProductoAPI(nombreLimpio, precioCompra)
-    }
-  )
-
-  // Precio de una línea de la factura (sin comparar con ningún producto).
-  ipcMain.handle('precios:linea', async (_, respuestaGemini: string, indice: number) => {
-    let factura
-
-    try {
-      factura = JSON.parse(respuestaGemini)
-    } catch {
-      throw new Error('La respuesta de Gemini no contiene un JSON válido.')
-    }
-
-    const linea = Array.isArray(factura.productos) ? factura.productos[indice] : undefined
-
-    if (!linea) {
-      throw new Error('No se encontró la línea de la factura.')
-    }
-
-    return compararPrecio(
-      linea,
-      { id: '', nombre: '', precio: null },
-      { catalogoIncluyeIva: config.precioCompraIncluyeIva }
-    )
+  ipcMain.handle('progreso:borrar', async (_, contenidoFactura: string) => {
+    await borrarProgreso(contenidoFactura)
   })
 
   // Comparación de productos de la factura contra el catálogo local

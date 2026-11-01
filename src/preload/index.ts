@@ -43,14 +43,26 @@ const api = {
   actualizarCatalogo: () =>
     ipcRenderer.invoke('catalogo:actualizar'),
 
-  actualizarPrecioCompra: (productoId: string, precioCompra: number) =>
-    ipcRenderer.invoke('productos:actualizar-precio', productoId, precioCompra),
+  confirmarImportacion: (entrada: unknown) =>
+    ipcRenderer.invoke('importacion:confirmar', entrada),
 
-  crearProducto: (nombre: string, precioCompra: number) =>
-    ipcRenderer.invoke('productos:crear', nombre, precioCompra),
+  facturaYaImportada: (nit: string, numero: string) =>
+    ipcRenderer.invoke('importacion:existe', nit, numero),
 
-  precioLineaFactura: (respuestaGemini: string, indice: number) =>
-    ipcRenderer.invoke('precios:linea', respuestaGemini, indice),
+  listarFacturas: () =>
+    ipcRenderer.invoke('facturas:listar'),
+
+  obtenerFactura: (id: string) =>
+    ipcRenderer.invoke('facturas:obtener', id),
+
+  guardarProgreso: (contenidoFactura: string, datos: unknown) =>
+    ipcRenderer.invoke('progreso:guardar', contenidoFactura, datos),
+
+  leerProgreso: (contenidoFactura: string) =>
+    ipcRenderer.invoke('progreso:leer', contenidoFactura),
+
+  borrarProgreso: (contenidoFactura: string) =>
+    ipcRenderer.invoke('progreso:borrar', contenidoFactura),
 
   seleccionarYLeerXML: () =>
     ipcRenderer.invoke('xml:seleccionar-y-leer')

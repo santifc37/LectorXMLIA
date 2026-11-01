@@ -90,6 +90,44 @@ export interface ComparacionPrecio {
   alertas: string[]
 }
 
+export interface EntradaImportacion {
+  respuestaGemini: string
+  resumen: ResumenFactura | null
+  coincidencias: ResultadoCoincidencia[]
+  /** Posiciones de las líneas que el usuario dejó marcadas para importar. */
+  incluidas: number[]
+  /** Posiciones de las líneas con cambio de precio autorizado. */
+  preciosAutorizados: number[]
+}
+
+export interface RespuestaImportacion {
+  /** true si la factura ya estaba importada: no se registró nada nuevo. */
+  duplicada: boolean
+  factura_id: string
+  ajuste_entrada_id?: string
+  lineas_importadas?: number
+  precios_actualizados?: number
+  importada_en?: string
+}
+
+export interface FacturaYaImportada {
+  existe: boolean
+  factura_id?: string
+  numero?: string
+  proveedor_nombre?: string | null
+  importada_en?: string
+}
+
+export interface ProgresoFactura {
+  version: 1
+  archivo: string
+  guardadoEn: string
+  respuestaGemini: { modelo: string; respuesta: string }
+  coincidencias: ResultadoCoincidencia[]
+  incluidas: Record<string, boolean>
+  preciosAutorizados: Record<string, boolean>
+}
+
 export interface AppAPI {
   getAppInfo: () => Promise<AppInfo>
 
@@ -117,20 +155,22 @@ export interface AppAPI {
 
   actualizarCatalogo: () => Promise<EstadoCatalogo>
 
-  actualizarPrecioCompra: (
-    productoId: string,
-    precioCompra: number
-  ) => Promise<{ ok: boolean }>
+  confirmarImportacion: (entrada: EntradaImportacion) => Promise<RespuestaImportacion>
 
-  crearProducto: (
-    nombre: string,
-    precioCompra: number
-  ) => Promise<{ id: string; nombre: string; precio_compra: number }>
+  facturaYaImportada: (nit: string, numero: string) => Promise<FacturaYaImportada>
 
-  precioLineaFactura: (
-    respuestaGemini: string,
-    indice: number
-  ) => Promise<ComparacionPrecio>
+  listarFacturas: () => Promise<{ facturas: unknown[]; total: number }>
+
+  obtenerFactura: (id: string) => Promise<unknown>
+
+  guardarProgreso: (
+    contenidoFactura: string,
+    datos: Omit<ProgresoFactura, 'version' | 'guardadoEn'>
+  ) => Promise<void>
+
+  leerProgreso: (contenidoFactura: string) => Promise<ProgresoFactura | null>
+
+  borrarProgreso: (contenidoFactura: string) => Promise<void>
 
   seleccionarYLeerXML: () => Promise<ArchivoXML | null>
 }
