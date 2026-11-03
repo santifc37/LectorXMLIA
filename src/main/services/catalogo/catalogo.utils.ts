@@ -115,3 +115,79 @@ export function normalizarProductos(crudo: unknown): ResultadoNormalizacion {
 
   return { productos, descartados }
 }
+
+/** Productos de la API que todavía no están en la copia local (por ID). */
+export function productosNuevos(
+  desdeApi: ProductoCatalogo[],
+  local: ProductoCatalogo[]
+): ProductoCatalogo[] {
+  const idsLocales = new Set(local.map((producto) => producto.id))
+
+  return desdeApi.filter((producto) => !idsLocales.has(producto.id))
+}
+
+/**
+ * Agrega productos a la copia local conservando el mismo formato de
+ * data/productos.json: sin repetidos (gana el que ya estaba) y ordenada por nombre.
+ */
+export function fusionarCatalogo(
+  local: ProductoCatalogo[],
+  agregar: ProductoCatalogo[]
+): ProductoCatalogo[] {
+  return normalizarProductos([...local, ...agregar]).productos
+}
+
+export interface DatosProductoNuevo {
+  codigo: string
+  codigo_barras: string | null
+  nombre: string
+  descripcion: string | null
+  categoria_id: string
+  unidad_base_id: string
+  precio_compra: number
+  precio_venta: number
+  stock_minimo: number
+}
+
+function numeroNoNegativo(valor: unknown, etiqueta: string): number {
+  const numero = typeof valor === 'string' && valor.trim() ? Number(valor) : valor
+
+  if (typeof numero !== 'number' || !Number.isFinite(numero) || numero < 0) {
+    throw new Error(`${etiqueta} debe ser un número no negativo.`)
+  }
+
+  return numero
+}
+
+function textoObligatorio(valor: unknown, etiqueta: string): string {
+  const texto = typeof valor === 'string' ? valor.trim() : ''
+
+  if (!texto) throw new Error(`${etiqueta} es obligatorio.`)
+
+  return texto
+}
+
+function textoOpcional(valor: unknown): string | null {
+  return typeof valor === 'string' && valor.trim() ? valor.trim() : null
+}
+
+/** Valida y limpia los datos del formulario antes de enviarlos a la API. */
+export function validarProductoNuevo(entrada: unknown): DatosProductoNuevo {
+  if (!entrada || typeof entrada !== 'object') {
+    throw new Error('Datos del producto no válidos.')
+  }
+
+  const datos = entrada as Record<string, unknown>
+
+  return {
+    codigo: textoObligatorio(datos.codigo, 'El código'),
+    codigo_barras: textoOpcional(datos.codigo_barras),
+    nombre: textoObligatorio(datos.nombre, 'El nombre'),
+    descripcion: textoOpcional(datos.descripcion),
+    categoria_id: textoObligatorio(datos.categoria_id, 'La categoría'),
+    unidad_base_id: textoObligatorio(datos.unidad_base_id, 'La unidad base'),
+    precio_compra: numeroNoNegativo(datos.precio_compra, 'El precio de compra'),
+    precio_venta: numeroNoNegativo(datos.precio_venta, 'El precio de venta'),
+    stock_minimo: numeroNoNegativo(datos.stock_minimo, 'El stock mínimo')
+  }
+}

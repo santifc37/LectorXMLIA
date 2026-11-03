@@ -3,7 +3,10 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { procesarXMLConGemini } from './services/gemini/gemini.service'
-import { compararFacturaConCatalogo } from './services/matching/matching.service'
+import {
+  compararFacturaConCatalogo,
+  compararProducto
+} from './services/matching/matching.service'
 import type {
   ProductoCatalogo,
   ResultadoCoincidencia
@@ -17,10 +20,17 @@ import {
   comprobarSesion,
   buscarFacturaAPI,
   listarFacturasAPI,
-  obtenerFacturaAPI
+  obtenerFacturaAPI,
+  listarCategoriasAPI,
+  listarUnidadesAPI
 } from './services/api/api.service'
 
-import { actualizarCatalogo } from './services/catalogo/catalogo.service'
+import {
+  actualizarCatalogo,
+  agregarProductosAlCatalogo,
+  crearProductoNuevo,
+  listarProductosNuevos
+} from './services/catalogo/catalogo.service'
 
 import { leerArchivoXML } from './services/xml/xml.service'
 import { importarFactura } from './services/importacion/importacion.service'
@@ -92,6 +102,29 @@ app.whenReady().then(() => {
   // Si la API no responde, usa la copia local.
   ipcMain.handle('catalogo:actualizar', async () => {
     return await actualizarCatalogo()
+  })
+
+  // Productos de la API que aún no están en productos.json (llena el select).
+  ipcMain.handle('catalogo:nuevos', async () => {
+    return await listarProductosNuevos()
+  })
+
+  // Agrega a productos.json solo los productos elegidos.
+  ipcMain.handle('catalogo:agregar', async (_, ids: string[]) => {
+    return await agregarProductosAlCatalogo(ids)
+  })
+
+  // Alta de un producto nuevo en el inventario, sin salir de la aplicación.
+  ipcMain.handle('catalogo:crear-producto', async (_, datos: unknown) => {
+    return await crearProductoNuevo(datos)
+  })
+
+  ipcMain.handle('catalogo:categorias', async () => {
+    return await listarCategoriasAPI()
+  })
+
+  ipcMain.handle('catalogo:unidades', async () => {
+    return await listarUnidadesAPI()
   })
 
   // Importación confirmada por el usuario: valida, recalcula los precios y envía
@@ -172,6 +205,36 @@ ipcMain.handle(
     )
   }
 )
+
+  // Actualiza la coincidencia de UNA sola línea de la factura.
+  ipcMain.handle(
+    'matching:comparar-linea',
+    async (_, respuestaGemini: string, indice: number, catalogo: ProductoCatalogo[]) => {
+      let factura
+
+      try {
+        factura = JSON.parse(respuestaGemini)
+      } catch {
+        throw new Error('La respuesta de Gemini no contiene un JSON válido.')
+      }
+
+      if (!Array.isArray(factura.productos) || !Number.isInteger(indice)) {
+        throw new Error('La factura no contiene una lista válida de productos.')
+      }
+
+      const linea = factura.productos[indice]
+
+      if (!linea) {
+        throw new Error('La línea de la factura no existe.')
+      }
+
+      if (!Array.isArray(catalogo)) {
+        throw new Error('No se recibió un catálogo válido.')
+      }
+
+      return compararProducto(linea, catalogo)
+    }
+  )
 
   // Comparación de precios: precio de la factura vs. precio de compra actual.
   // Se calcula en código; Gemini solo aporta los datos de la factura.

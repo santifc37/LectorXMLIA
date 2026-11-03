@@ -25,6 +25,24 @@ export interface EstadoCatalogo {
   advertencia?: string
 }
 
+export interface OpcionCatalogo {
+  id: string
+  nombre: string
+  codigo?: string | null
+}
+
+export interface DatosProductoNuevo {
+  codigo: string
+  codigo_barras: string | null
+  nombre: string
+  descripcion: string | null
+  categoria_id: string
+  unidad_base_id: string
+  precio_compra: number
+  precio_venta: number
+  stock_minimo: number
+}
+
 export interface ResumenFactura {
   numero: string | null
   fecha: string | null
@@ -154,6 +172,24 @@ export interface AppAPI {
   comprobarSesion: () => Promise<{ autenticado: boolean }>
 
   actualizarCatalogo: () => Promise<EstadoCatalogo>
+
+  productosNuevosCatalogo: () => Promise<Producto[]>
+
+  agregarProductosCatalogo: (ids: string[]) => Promise<EstadoCatalogo>
+
+  crearProducto: (
+    datos: DatosProductoNuevo
+  ) => Promise<{ estado: EstadoCatalogo; productoId: string }>
+
+  listarCategorias: () => Promise<OpcionCatalogo[]>
+
+  listarUnidades: () => Promise<OpcionCatalogo[]>
+
+  compararLineaConCatalogo: (
+    respuestaGemini: string,
+    indice: number,
+    catalogo: Producto[]
+  ) => Promise<ResultadoCoincidencia>
 
   confirmarImportacion: (entrada: EntradaImportacion) => Promise<RespuestaImportacion>
 

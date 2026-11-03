@@ -205,3 +205,65 @@ export async function obtenerFacturaAPI(id: string): Promise<unknown> {
 
   return await respuesta.json()
 }
+
+export interface OpcionCatalogo {
+  id: string
+  nombre: string
+  codigo?: string | null
+}
+
+async function leerLista(respuesta: Response, mensaje: string): Promise<unknown[]> {
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, mensaje)
+  }
+
+  const datos = (await respuesta.json()) as unknown
+
+  if (Array.isArray(datos)) return datos
+
+  if (datos && typeof datos === 'object' && Array.isArray((datos as { datos?: unknown }).datos)) {
+    return (datos as { datos: unknown[] }).datos
+  }
+
+  throw new Error(`${mensaje}: formato de respuesta no válido.`)
+}
+
+function aOpciones(lista: unknown[]): OpcionCatalogo[] {
+  return lista
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .filter((item) => item.activo !== false && typeof item.id === 'string')
+    .map((item) => ({
+      id: String(item.id),
+      nombre: String(item.nombre ?? item.codigo ?? item.id),
+      codigo: typeof item.codigo === 'string' ? item.codigo : null
+    }))
+}
+
+/** Categorías activas, para elegir la del producto nuevo. */
+export async function listarCategoriasAPI(): Promise<OpcionCatalogo[]> {
+  const respuesta = await solicitar('/categorias')
+
+  return aOpciones(await leerLista(respuesta, 'No se pudieron consultar las categorías'))
+}
+
+/** Unidades base disponibles, para elegir la del producto nuevo. */
+export async function listarUnidadesAPI(): Promise<OpcionCatalogo[]> {
+  const respuesta = await solicitar('/unidades')
+
+  return aOpciones(await leerLista(respuesta, 'No se pudieron consultar las unidades'))
+}
+
+/** Crea un producto en el inventario. Devuelve el registro creado por la API. */
+export async function crearProductoAPI(datos: unknown): Promise<unknown> {
+  const respuesta = await solicitar('/productos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(datos)
+  })
+
+  if (!respuesta.ok) {
+    throw await leerErrorAPI(respuesta, 'No se pudo crear el producto')
+  }
+
+  return await respuesta.json()
+}
