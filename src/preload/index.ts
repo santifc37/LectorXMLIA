@@ -43,6 +43,28 @@ const api = {
   actualizarCatalogo: () =>
     ipcRenderer.invoke('catalogo:actualizar'),
 
+  productosNuevosCatalogo: () =>
+    ipcRenderer.invoke('catalogo:nuevos'),
+
+  agregarProductosCatalogo: (ids: string[]) =>
+    ipcRenderer.invoke('catalogo:agregar', ids),
+
+  crearProducto: (datos: unknown) =>
+    ipcRenderer.invoke('catalogo:crear-producto', datos),
+
+  listarCategorias: () =>
+    ipcRenderer.invoke('catalogo:categorias'),
+
+  listarUnidades: () =>
+    ipcRenderer.invoke('catalogo:unidades'),
+
+  compararLineaConCatalogo: (
+    respuestaGemini: string,
+    indice: number,
+    catalogo: Producto[]
+  ) =>
+    ipcRenderer.invoke('matching:comparar-linea', respuestaGemini, indice, catalogo),
+
   confirmarImportacion: (entrada: unknown) =>
     ipcRenderer.invoke('importacion:confirmar', entrada),
 

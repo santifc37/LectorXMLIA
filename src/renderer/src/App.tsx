@@ -6,6 +6,8 @@ import './assets/candidatos.css'
 import { ListaCandidatos } from './components/ListaCandidatos'
 import { ConfirmarImportacion } from './components/ConfirmarImportacion'
 import { HistorialFacturas } from './components/HistorialFacturas'
+import { AgregarProductosCatalogo } from './components/AgregarProductosCatalogo'
+import { FormularioProductoNuevo } from './components/FormularioProductoNuevo'
 import {
   estaIncluida,
   posicionesConPrecioAutorizado,
@@ -129,6 +131,10 @@ function App(): JSX.Element {
   const [comparandoProductos, setComparandoProductos] = useState(false)
   const [seleccionandoCandidato, setSeleccionandoCandidato] =
     useState<number | null>(null)
+  // Línea cuya coincidencia se está actualizando, y línea con el formulario de
+  // producto nuevo abierto.
+  const [actualizandoLinea, setActualizandoLinea] = useState<number | null>(null)
+  const [lineaCreando, setLineaCreando] = useState<number | null>(null)
 
   // Comparación de precios (misma posición que resultadosCoincidencia) y
   // actualizaciones de precio que el usuario autorizó, por posición.
@@ -280,6 +286,119 @@ function App(): JSX.Element {
       return estado.productos
     } finally {
       setCargandoProductos(false)
+    }
+  }
+
+  // Refleja en pantalla un catálogo que ya se guardó en productos.json.
+  function aplicarEstadoCatalogo(estado: {
+    productos: Producto[]
+    actualizadoEn: string | null
+    origen: 'api' | 'local'
+  }): void {
+    setProductos(estado.productos)
+    setCatalogoActualizadoEn(estado.actualizadoEn)
+    setCatalogoOrigen(estado.origen)
+  }
+
+  function lineaDeFactura(indice: number): { descripcion?: string; precio_unitario?: number | null } | null {
+    if (!respuestaGemini) return null
+
+    try {
+      const factura = JSON.parse(respuestaGemini.respuesta) as { productos?: unknown[] }
+      const linea = factura.productos?.[indice]
+
+      return linea && typeof linea === 'object' ? (linea as { descripcion?: string; precio_unitario?: number | null }) : null
+    } catch {
+      return null
+    }
+  }
+
+  // Vuelve a buscar coincidencias SOLO para una línea de la factura, con el
+  // catálogo actual (productos.json). Las demás líneas no se tocan.
+  async function actualizarCoincidenciaLinea(
+    indice: number,
+    opciones: { catalogo?: Producto[]; productoNuevoId?: string } = {}
+  ): Promise<void> {
+    if (!respuestaGemini) return
+
+    const anterior = resultadosCoincidencia[indice]
+
+    if (!anterior) return
+
+    try {
+      setActualizandoLinea(indice)
+      setError('')
+
+      const catalogo = opciones.catalogo ?? productos
+
+      const nueva = await window.api.compararLineaConCatalogo(
+        respuestaGemini.respuesta,
+        indice,
+        catalogo
+      )
+
+      // Se conserva la selección anterior solo si sigue entre los candidatos.
+      // Un producto recién creado para esta línea se selecciona expresamente.
+      let seleccionadoId: string | null = null
+      let candidatos = nueva.candidatos
+
+      if (opciones.productoNuevoId) {
+        seleccionadoId = opciones.productoNuevoId
+
+        if (!candidatos.some((candidato) => candidato.id === seleccionadoId)) {
+          const creado = catalogo.find((producto) => producto.id === seleccionadoId)
+
+          if (creado) {
+            candidatos = [
+              {
+                id: creado.id,
+                nombre: creado.nombre,
+                precio: creado.precio_compra,
+                puntuacion: 100,
+                motivo: 'Producto creado para esta línea.',
+                codigo: creado.codigo ?? null
+              },
+              ...candidatos
+            ]
+          }
+        }
+      } else if (
+        anterior.productoSeleccionadoId &&
+        candidatos.some((candidato) => candidato.id === anterior.productoSeleccionadoId)
+      ) {
+        seleccionadoId = anterior.productoSeleccionadoId
+      }
+
+      const actualizados = resultadosCoincidencia.map((resultado, posicion) =>
+        posicion === indice
+          ? { ...nueva, candidatos, productoSeleccionadoId: seleccionadoId }
+          : resultado
+      )
+
+      setResultadosCoincidencia(actualizados)
+
+      // Cambia el producto de la línea: se descartan sus decisiones anteriores.
+      setPreciosAutorizados((actual) => {
+        const nuevos = { ...actual }
+        delete nuevos[indice]
+        return nuevos
+      })
+
+      setIncluidas((actual) => {
+        const nuevos = { ...actual }
+        delete nuevos[indice]
+        return nuevos
+      })
+
+      const precios = await window.api.compararPrecios(respuestaGemini.respuesta, actualizados)
+
+      setComparacionesPrecio(precios)
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'No se pudo actualizar la coincidencia de la línea.'
+      )
+    } finally {
+      setActualizandoLinea(null)
     }
   }
 
@@ -1064,6 +1183,53 @@ function App(): JSX.Element {
     )
   }
 
+  // Acciones de una línea: actualizar solo su coincidencia o crear el producto
+  // que falta, sin salir de esta pantalla.
+  function renderAccionesLinea(indice: number): JSX.Element {
+    const linea = lineaDeFactura(indice)
+
+    return (
+      <>
+        <div className="new-product-actions" style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={actualizandoLinea === indice}
+            onClick={() => void actualizarCoincidenciaLinea(indice)}
+          >
+            {actualizandoLinea === indice ? 'Actualizando...' : 'Actualizar coincidencias'}
+          </button>
+
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => setLineaCreando((actual) => (actual === indice ? null : indice))}
+          >
+            {lineaCreando === indice ? 'Cerrar formulario' : 'Crear producto nuevo'}
+          </button>
+        </div>
+
+        {lineaCreando === indice && (
+          <FormularioProductoNuevo
+            inicial={{
+              nombre: linea?.descripcion ?? resultadosCoincidencia[indice]?.productoFactura,
+              precioCompra: linea?.precio_unitario ?? null
+            }}
+            onCancelar={() => setLineaCreando(null)}
+            onCreado={({ estado, productoId }) => {
+              aplicarEstadoCatalogo(estado)
+              setLineaCreando(null)
+              void actualizarCoincidenciaLinea(indice, {
+                catalogo: estado.productos,
+                productoNuevoId: productoId
+              })
+            }}
+          />
+        )}
+      </>
+    )
+  }
+
   function renderResultadosCoincidencia(): JSX.Element | null {
     if (comparandoProductos) {
       return (
@@ -1201,7 +1367,7 @@ function App(): JSX.Element {
                           </p>
                         )}
 
-                        
+                        {renderAccionesLinea(index)}
 
                         {resultado.productoSeleccionadoId && (
                           seleccionandoCandidato === index ? (
@@ -1273,7 +1439,7 @@ function App(): JSX.Element {
               </div>
             )}
 
-            
+            {renderAccionesLinea(index)}
 
             {resultado.productoSeleccionadoId ? (
               seleccionandoCandidato === index ? (
@@ -1639,6 +1805,8 @@ function App(): JSX.Element {
                   {cargandoProductos ? 'Actualizando...' : 'Actualizar'}
                 </button>
               </div>
+
+              <AgregarProductosCatalogo onCatalogoActualizado={aplicarEstadoCatalogo} />
 
               <article className="panel catalog-panel">
                 <div className="catalog-summary">

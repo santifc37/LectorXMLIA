@@ -1,8 +1,8 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import { dirname } from 'path'
 import { rutaCatalogo } from '../../config'
-import { obtenerProductosAPI } from '../api/api.service'
-import { normalizarProductos } from './catalogo.utils'
+import { crearProductoAPI, obtenerProductosAPI } from '../api/api.service'
+import { fusionarCatalogo, normalizarProductos, productosNuevos, validarProductoNuevo } from './catalogo.utils'
 import type { ProductoCatalogo } from './catalogo.utils'
 
 export type { ProductoCatalogo }
@@ -127,4 +127,74 @@ export async function actualizarPrecioLocal(
   )
 
   await guardarCatalogo(productos)
+}
+
+async function estadoDesdeLista(productos: ProductoCatalogo[]): Promise<EstadoCatalogo> {
+  await guardarCatalogo(productos)
+
+  return {
+    productos,
+    actualizadoEn: new Date().toISOString(),
+    origen: 'local',
+    descartados: 0
+  }
+}
+
+/**
+ * Productos activos de la API que todavía no están en data/productos.json.
+ * Sirve para llenar el select de "agregar productos nuevos".
+ */
+export async function listarProductosNuevos(): Promise<ProductoCatalogo[]> {
+  const { productos: desdeApi } = normalizarProductos(await obtenerProductosAPI())
+  const local = (await leerCatalogoLocal().catch(() => null))?.productos ?? []
+
+  return productosNuevos(desdeApi, local)
+}
+
+/**
+ * Agrega a data/productos.json los productos elegidos (por ID) sin tocar los
+ * demás. Los datos se leen de la API, nunca del renderizador, y solo se aceptan
+ * productos activos que existan allí.
+ */
+export async function agregarProductosAlCatalogo(ids: string[]): Promise<EstadoCatalogo> {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) {
+    throw new Error('No se indicaron productos para agregar.')
+  }
+
+  const pedidos = new Set(ids)
+  const { productos: desdeApi } = normalizarProductos(await obtenerProductosAPI())
+  const elegidos = desdeApi.filter((producto) => pedidos.has(producto.id))
+
+  if (elegidos.length !== pedidos.size) {
+    throw new Error('Alguno de los productos ya no existe o está inactivo en el inventario.')
+  }
+
+  const local = (await leerCatalogoLocal().catch(() => null))?.productos ?? []
+
+  return await estadoDesdeLista(fusionarCatalogo(local, elegidos))
+}
+
+/**
+ * Crea un producto en el inventario (API) y lo agrega de una vez a
+ * data/productos.json. Devuelve el catálogo actualizado y el ID del producto.
+ */
+export async function crearProductoNuevo(
+  entrada: unknown
+): Promise<{ estado: EstadoCatalogo; productoId: string }> {
+  const datos = validarProductoNuevo(entrada)
+  const creado = await crearProductoAPI(datos)
+
+  const { productos: nuevos } = normalizarProductos([creado])
+  const producto = nuevos[0]
+
+  if (!producto) {
+    throw new Error('El producto se creó, pero la API devolvió una respuesta inesperada. Actualiza el catálogo.')
+  }
+
+  const local = (await leerCatalogoLocal().catch(() => null))?.productos ?? []
+
+  return {
+    estado: await estadoDesdeLista(fusionarCatalogo(local, [producto])),
+    productoId: producto.id
+  }
 }
